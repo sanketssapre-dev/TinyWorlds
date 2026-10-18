@@ -75,18 +75,34 @@ body,
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 
-.switch-cam {
+.scene-controls {
   position: absolute;
-  left: 50%;
+  right: 1.4rem;
   bottom: 1.4rem;
-  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   pointer-events: auto;
+}
+
+.scene-control {
+  display: grid;
+  place-items: center;
+  width: 2.85rem;
+  height: 2.85rem;
+  padding: 0;
   background: var(--panel);
   border: 1px solid rgba(212, 179, 106, 0.35);
   backdrop-filter: blur(10px);
-  padding: 0.55rem 1.05rem;
   font-family: "Segoe UI", system-ui, sans-serif;
   letter-spacing: 0.02em;
+}
+
+.scene-control svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  stroke: currentColor;
+  stroke-width: 1.6;
 }
 
 .panel {
@@ -114,10 +130,6 @@ body,
   padding: 0.35rem 0.85rem;
   border-radius: 999px;
   cursor: pointer;
-}
-
-.btn.switch-cam {
-  font-size: clamp(0.7rem, 1.2vw, 0.92rem);
 }
 
 .btn:hover,
@@ -172,7 +184,8 @@ body,
 }
 
 @media (max-width: 720px) {
-  .switch-cam {
+  .scene-controls {
+    right: 0.9rem;
     bottom: 0.9rem;
   }
 

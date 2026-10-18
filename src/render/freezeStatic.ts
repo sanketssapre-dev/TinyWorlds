@@ -8,13 +8,16 @@ const KEEP_SELF = new Set([
   "windmill-sails",
   "village-flames",
   "castle-flames",
-  "clouds",
-  "motes",
   "ancient-crown",
 ]);
 
 /** These objects move, and so do their children. */
-const KEEP_SUBTREE = new Set(["village-smoke", "fireflies", "grazing-sheep"]);
+const KEEP_SUBTREE = new Set([
+  "village-smoke",
+  "fireflies",
+  "grazing-sheep",
+  "planetary-soil-rings",
+]);
 
 /** Bake a local matrix once for anything that never moves again. */
 export function freezeStaticObjects(root: Object3D): void {

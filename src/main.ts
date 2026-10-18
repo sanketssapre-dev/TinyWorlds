@@ -23,7 +23,11 @@ import { indexPlanetSurface } from "./planet/surface";
 import { createBoats, updateBoats } from "./planet/boats";
 import { createWater, updateWater } from "./planet/water";
 import { createFlightPath, getSampleAt, scratchSample } from "./railway/path";
-import { createEnvironment, updateClouds } from "./scene/environment";
+import {
+  createEnvironment,
+  createPlanetaryRings,
+  updatePlanetaryRings,
+} from "./scene/environment";
 import { freezeStaticObjects } from "./render/freezeStatic";
 import { skipInvisibleDirectLight } from "./render/liveLights";
 import { createHud } from "./ui/hud";
@@ -72,21 +76,23 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   const path = debugPaths
     ? debugPaths[selectedVariant]
     : createFlightPath(768, pathSeed, selectedVariant);
-  const planet = createPlanetMesh();
+  const flight = createFlight();
+  const planet = createPlanetMesh(flight.searchLight);
   const surface = indexPlanetSurface(planet.geometry);
   const scenery = createScenery(path);
   seatOnGround(scenery, surface);
   const water = createWater();
   const boats = createBoats();
   const fireflies = createFireflies();
-  const flight = createFlight();
 
   scene.add(planet, scenery, water, boats, fireflies, flight.craft);
   if (debugPaths) scene.add(createFlightPathMarkers(debugPaths));
+  snapCamera(cameraRig, getSampleAt(path, flight.distance, scratchSample()));
+  const planetaryRings = createPlanetaryRings();
+  scene.add(planetaryRings);
   freezeStaticObjects(scene);
 
   const hud = createHud(hudMount, cameraRig);
-  snapCamera(cameraRig, getSampleAt(path, flight.distance, scratchSample()));
 
   const clock = new Clock();
   const pointers = new Map<number, { x: number; y: number }>();
@@ -103,7 +109,11 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
     const pts = [...pointers.values()];
     const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     if (pinch) {
-      cameraRig.zoom = clamp(cameraRig.zoom * (pinch / d), CAMERA.minZoom, zoomMax(cameraRig.overhead));
+      cameraRig.zoom = clamp(
+        cameraRig.zoom * (pinch / d),
+        zoomMin(cameraRig.overhead),
+        zoomMax(cameraRig.overhead),
+      );
       notifyOrbit(cameraRig);
     }
     pinch = d;
@@ -116,7 +126,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
     e.preventDefault();
     cameraRig.zoom = clamp(
       cameraRig.zoom + Math.sign(e.deltaY) * 0.55,
-      CAMERA.minZoom,
+      zoomMin(cameraRig.overhead),
       zoomMax(cameraRig.overhead),
     );
     notifyOrbit(cameraRig);
@@ -144,7 +154,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
     updateWater(dt);
     updateBoats(dt);
     sceneryTime.value += dt;
-    updateClouds(env, dt);
+    updatePlanetaryRings(planetaryRings, dt, cameraRig.camera.position.length());
     updateLife(scenery, clock.elapsedTime);
     updateFireflies(fireflies, clock.elapsedTime);
     hud.refresh();
@@ -163,6 +173,10 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
 
 function zoomMax(overhead: boolean): number {
   return overhead ? CAMERA.maxOverheadZoom : CAMERA.maxZoom;
+}
+
+function zoomMin(overhead: boolean): number {
+  return overhead ? CAMERA.minOverheadZoom : CAMERA.minZoom;
 }
 
 function clamp(v: number, a: number, b: number): number {

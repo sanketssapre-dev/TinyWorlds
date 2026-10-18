@@ -8,7 +8,8 @@ import {
   Vector3,
 } from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { PLANET } from "../config";
+import type { GroundSearchLight } from "../flight/biplane";
+import { PLANET, SEARCH_LIGHT } from "../config";
 import { cartToSph, angularDistance } from "../math/sphere";
 import { heightOffset } from "./height";
 import { SITES } from "./features";
@@ -22,7 +23,7 @@ const cliff = new Color("#8a7d6d");
 const sand = new Color("#c2b08a");
 const snow = new Color("#f4f7f8");
 
-export function createPlanetMesh(): Mesh {
+export function createPlanetMesh(searchLight?: GroundSearchLight): Mesh {
   const source = new IcosahedronGeometry(PLANET.radius, 72);
   source.deleteAttribute("normal");
   source.deleteAttribute("uv");
@@ -92,10 +93,49 @@ export function createPlanetMesh(): Mesh {
     metalness: 0.02,
     flatShading: false,
   });
+  if (searchLight) addGroundSearchLight(mat, searchLight);
 
   const mesh = new Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.castShadow = false;
   mesh.name = "planet";
   return mesh;
+}
+
+function addGroundSearchLight(material: MeshStandardMaterial, light: GroundSearchLight): void {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSearchLightPosition = { value: light.position };
+    shader.uniforms.uSearchLightDirection = { value: light.direction };
+    shader.uniforms.uSearchLightColor = { value: new Color("#f0e2c4") };
+    shader.uniforms.uSearchLightIntensity = light.intensity;
+
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vSearchLightWorldPosition;")
+      .replace(
+        "#include <worldpos_vertex>",
+        "#include <worldpos_vertex>\nvSearchLightWorldPosition = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;",
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform vec3 uSearchLightPosition;
+uniform vec3 uSearchLightDirection;
+uniform vec3 uSearchLightColor;
+uniform float uSearchLightIntensity;
+varying vec3 vSearchLightWorldPosition;`,
+      )
+      .replace(
+        "#include <opaque_fragment>",
+        `vec3 searchLightOffset = vSearchLightWorldPosition - uSearchLightPosition;
+float searchLightDistance = length(searchLightOffset);
+float searchLightCosine = dot(searchLightOffset / max(searchLightDistance, 0.001), uSearchLightDirection);
+float searchLightCone = smoothstep(cos(${SEARCH_LIGHT.angle}), cos(${SEARCH_LIGHT.innerAngle}), searchLightCosine);
+float searchLightRange = pow(max(0.0, 1.0 - pow(searchLightDistance / ${SEARCH_LIGHT.distance.toFixed(1)}, 4.0)), 2.0);
+float searchLightFalloff = 1.0 / max(searchLightDistance * searchLightDistance, ${SEARCH_LIGHT.minimumFalloffDistance ** 2}.0);
+outgoingLight += uSearchLightColor * uSearchLightIntensity * searchLightCone * searchLightRange * searchLightFalloff;
+#include <opaque_fragment>`,
+      );
+  };
 }
