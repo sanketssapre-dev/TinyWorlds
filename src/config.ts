@@ -107,13 +107,13 @@ export const CAMERA = {
   followHeight: 3.6,
   lookAhead: 4.8,
   overheadDistance: 40,
-  minZoom: 8.4,
+  minZoom: 10.08,
   /** Chase / behind view. Stays a close follow, never an orbital pull-back. */
-  maxZoom: 48,
+  maxZoom: 40.8,
   /** Above view only. Far enough for the planet disk to sit inside a 42° frame. */
-  maxOverheadZoom: 432,
-  /** Above view only. Keep the closest pull-in 20% farther away than follow view. */
-  minOverheadZoom: 10.08,
+  maxOverheadZoom: 367.2,
+  /** Above view only. Stops at the close framing requested for the world view. */
+  minOverheadZoom: 30.8,
   damping: 2.4,
 } as const;
 

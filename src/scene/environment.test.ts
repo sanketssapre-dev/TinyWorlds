@@ -116,19 +116,18 @@ describe("celestial bodies", () => {
   });
 
   it("zooms out far enough to frame the planet, rings, and moons while preserving follow-mode zoom", () => {
-    expect(CAMERA.maxOverheadZoom).toBe(432);
+    expect(CAMERA.maxOverheadZoom).toBeCloseTo(432 * 0.85);
     expect(CAMERA.far).toBeGreaterThan(SUN.distance + CAMERA.maxOverheadZoom);
     expect(CAMERA.far).toBeGreaterThan(
       CAMERA.maxOverheadZoom + PLANETARY_RING.orbitDistance + MOON.largerOrbitDistance,
     );
-    expect(CAMERA.minOverheadZoom / CAMERA.minZoom).toBeCloseTo(1.2);
-    expect(CAMERA.minZoom).toBeCloseTo(7 * 1.2);
-    expect(CAMERA.minOverheadZoom).toBeCloseTo(8.4 * 1.2);
+    expect(CAMERA.minOverheadZoom).toBeCloseTo(30.8);
+    expect(CAMERA.minZoom).toBeCloseTo(8.4 * 1.2);
     expect(PLANET.atmosphereRadius).toBeGreaterThan(
       PLANET.radius + PLANET.maxHeight + FLIGHT.cruise + CAMERA.maxOverheadZoom,
     );
-    expect(CAMERA.maxZoom).toBe(48);
-    expect(CAMERA.minZoom).toBe(8.4);
+    expect(CAMERA.maxZoom).toBeCloseTo(48 * 0.85);
+    expect(CAMERA.minZoom).toBeCloseTo(10.08);
   });
 
   it("places a warm visible Sun along the existing illumination direction", () => {
