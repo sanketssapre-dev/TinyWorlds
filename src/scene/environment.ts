@@ -1,26 +1,34 @@
 import {
+  AdditiveBlending,
   AmbientLight,
   BackSide,
   BufferGeometry,
   Color,
+  DataTexture,
   DirectionalLight,
   Float32BufferAttribute,
   FogExp2,
   Group,
   HemisphereLight,
+  InstancedMesh,
+  LinearFilter,
+  Matrix4,
   Mesh,
   MeshStandardMaterial,
   Points,
   PointsMaterial,
+  Quaternion,
+  RGBAFormat,
   Scene,
   ShaderMaterial,
   SphereGeometry,
   Sprite,
   SpriteMaterial,
-  CanvasTexture,
+  SRGBColorSpace,
+  UnsignedByteType,
   Vector3,
 } from "three";
-import { PLANET } from "../config";
+import { ATMOSPHERE, MOON, PLANET, PLANETARY_RING, STARFIELD, SUN } from "../config";
 import { sphToCart } from "../math/sphere";
 
 export function createEnvironment(scene: Scene): Group {
@@ -35,18 +43,19 @@ export function createEnvironment(scene: Scene): Group {
   const ambient = new AmbientLight("#7ea8a4", 0.38);
   group.add(ambient);
 
-  const sun = new DirectionalLight("#f0e2c4", 1.85);
-  sun.position.set(90, 55, 35);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 20;
-  sun.shadow.camera.far = 220;
-  sun.shadow.camera.left = -70;
-  sun.shadow.camera.right = 70;
-  sun.shadow.camera.top = 70;
-  sun.shadow.camera.bottom = -70;
-  sun.shadow.bias = -0.00015;
-  group.add(sun);
+  const sunlight = new DirectionalLight("#f0e2c4", 1.85);
+  sunlight.position.set(...SUN.direction);
+  sunlight.castShadow = true;
+  sunlight.shadow.mapSize.set(2048, 2048);
+  sunlight.shadow.camera.near = 20;
+  sunlight.shadow.camera.far = 220;
+  sunlight.shadow.camera.left = -70;
+  sunlight.shadow.camera.right = 70;
+  sunlight.shadow.camera.top = 70;
+  sunlight.shadow.camera.bottom = -70;
+  sunlight.shadow.bias = -0.00015;
+  group.add(sunlight);
+  group.add(createVisibleSun());
 
   const fill = new DirectionalLight("#6b8a9a", 0.42);
   fill.position.set(-40, -30, -60);
@@ -54,17 +63,63 @@ export function createEnvironment(scene: Scene): Group {
 
   group.add(createStars());
   group.add(createAtmosphere());
-  group.add(createClouds());
-  group.add(createMotes());
-  group.add(createMoon());
+  group.add(createMoons());
   return group;
 }
 
-function createStars(): Points {
-  const count = 1800;
+export function createVisibleSun(): Group {
+  const sun = new Group();
+  sun.name = "visible-sun";
+  const direction = new Vector3(...SUN.direction).normalize();
+  sun.position.copy(direction).multiplyScalar(SUN.distance);
+
+  const discAndGlow = new Sprite(
+    new SpriteMaterial({
+      map: createSunGlowTexture(),
+      transparent: true,
+      blending: AdditiveBlending,
+      depthTest: true,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+    }),
+  );
+  discAndGlow.name = "sun-disc-and-glow";
+  discAndGlow.scale.setScalar(SUN.glowDiameter);
+  sun.add(discAndGlow);
+  return sun;
+}
+
+function createSunGlowTexture(): DataTexture {
+  const size = 128;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const dx = (x + 0.5 - size / 2) / (size / 2);
+      const dy = (y + 0.5 - size / 2) / (size / 2);
+      const radius = Math.sqrt(dx * dx + dy * dy);
+      const disc = radius <= 0.25;
+      const halo = Math.exp(-radius * 4.8) * (1 - smoothstep(0.25, 1, radius));
+      data[i] = 255;
+      data[i + 1] = disc ? 250 : 190;
+      data[i + 2] = disc ? 232 : 72;
+      data[i + 3] = disc ? 255 : Math.round(halo * 150);
+    }
+  }
+  const texture = new DataTexture(data, size, size, RGBAFormat, UnsignedByteType);
+  texture.colorSpace = SRGBColorSpace;
+  texture.magFilter = LinearFilter;
+  texture.minFilter = LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+export function createStars(): Points {
+  const count = STARFIELD.count;
   const positions = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    const r = 220 + Math.random() * 160;
+    const r = STARFIELD.innerRadius + Math.random() * (STARFIELD.outerRadius - STARFIELD.innerRadius);
     const theta = Math.acos(2 * Math.random() - 1);
     const phi = Math.random() * Math.PI * 2;
     const p = sphToCart(r, theta, phi);
@@ -83,16 +138,21 @@ function createStars(): Points {
     depthWrite: false,
     fog: false,
   });
-  return new Points(geo, mat);
+  const stars = new Points(geo, mat);
+  stars.name = "star-field";
+  return stars;
 }
 
-function createAtmosphere(): Mesh {
+export function createAtmosphere(): Mesh {
   const geo = new SphereGeometry(PLANET.atmosphereRadius, 64, 48);
   const mat = new ShaderMaterial({
     side: BackSide,
+    transparent: true,
     depthWrite: false,
     uniforms: {
       uLimb: { value: PLANET.radius + 4 },
+      uFadeStart: { value: ATMOSPHERE.fadeStart },
+      uFadeEnd: { value: ATMOSPHERE.fadeEnd },
     },
     vertexShader: `
       varying vec3 vWorld;
@@ -105,6 +165,8 @@ function createAtmosphere(): Mesh {
     fragmentShader: `
       varying vec3 vWorld;
       uniform float uLimb;
+      uniform float uFadeStart;
+      uniform float uFadeEnd;
       void main() {
         vec3 viewDir = normalize(vWorld - cameraPosition);
         float camLen = length(cameraPosition);
@@ -118,9 +180,10 @@ function createAtmosphere(): Mesh {
         float tFar = smoothstep(limb - 0.02, limb + 0.03, elev);
         float alt = smoothstep(100.0, 145.0, camLen);
         float t = mix(tNear, tFar, alt);
+        float shellAlpha = 1.0 - smoothstep(uFadeStart, uFadeEnd, camLen);
         vec3 horizon = vec3(0.58, 0.92, 0.82);
         vec3 zenith = vec3(0.02, 0.04, 0.09);
-        gl_FragColor = vec4(mix(horizon, zenith, t), 1.0);
+        gl_FragColor = vec4(mix(horizon, zenith, t), shellAlpha);
       }
     `,
   });
@@ -130,121 +193,224 @@ function createAtmosphere(): Mesh {
   return mesh;
 }
 
-function cloudTexture(): CanvasTexture {
-  const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return new CanvasTexture(canvas);
-  const fade = ctx.createRadialGradient(64, 64, 6, 64, 64, 64);
-  fade.addColorStop(0, "rgba(255,255,255,0.9)");
-  fade.addColorStop(0.4, "rgba(248,250,252,0.45)");
-  fade.addColorStop(1, "rgba(248,250,252,0)");
-  ctx.fillStyle = fade;
-  ctx.fillRect(0, 0, 128, 128);
-  const tex = new CanvasTexture(canvas);
-  tex.needsUpdate = true;
-  return tex;
+export const MOON_ORBIT_DISTANCE = MOON.smallerOrbitDistance;
+export const PLANETARY_RING_DISTANCE = PLANETARY_RING.orbitDistance;
+
+export function createMoons(): Group {
+  const moons = new Group();
+  moons.name = "natural-moons";
+  const smallerRadius = MOON.radius * MOON.secondScale;
+  const smallerMoon = new Mesh(
+    new SphereGeometry(smallerRadius, 24, 20),
+    moonMaterial("#9bbfe8"),
+  );
+  smallerMoon.name = "blue-moon";
+  smallerMoon.position.set(0, MOON.smallerOrbitDistance, 0);
+  smallerMoon.add(createMoonGlow("#8fc8ff", smallerRadius));
+
+  const largerMoon = new Mesh(
+    new SphereGeometry(MOON.radius, 24, 20),
+    moonMaterial("#cfc6b4"),
+  );
+  largerMoon.name = "primary-moon";
+  largerMoon.position.set(0, -MOON.largerOrbitDistance, 0);
+  largerMoon.add(createMoonGlow("#e6cda2", MOON.radius));
+  moons.add(smallerMoon, largerMoon);
+  return moons;
 }
 
-function createClouds(): Group {
-  const g = new Group();
-  g.name = "clouds";
-  const mat = new SpriteMaterial({
-    map: cloudTexture(),
-    color: "#f6f4ef",
-    transparent: true,
-    depthWrite: false,
-    fog: false,
-    opacity: 0.92,
-  });
-
-  // Separate banks. Each one is a filled clump, so the sky does not grow a ring.
-  const banks: Array<[number, number, number]> = [
-    [1.45, 0.55, 0.9],
-    [0.72, 1.85, 1.15],
-    [1.55, 2.7, 0.8],
-    [0.95, 3.65, 1.2],
-    [1.7, 4.5, 0.9],
-    [1.15, 5.6, 1.05],
-  ];
-  const blobs: Array<[number, number, number]> = [
-    [0, 0, 5.4],
-    [2.1, 0.7, 4.2],
-    [-1.7, 1.3, 3.7],
-    [0.5, -2.0, 4.5],
-    [-2.2, -0.9, 3.3],
-    [1.5, 1.9, 2.9],
-  ];
-  const radial = new Vector3();
-  const tangent = new Vector3();
-  const bitangent = new Vector3();
-
-  banks.forEach(([theta, phi, scale], bank) => {
-    const center = sphToCart(PLANET.radius + 16 + scale, theta, phi);
-    radial.copy(center).normalize();
-    tangent.set(-radial.z, 0, radial.x);
-    if (tangent.lengthSq() < 1e-4) tangent.set(1, 0, 0);
-    tangent.normalize();
-    bitangent.crossVectors(radial, tangent);
-    const spin = bank * 0.85;
-    const cs = Math.cos(spin);
-    const sn = Math.sin(spin);
-    for (const [ox, oy, size] of blobs) {
-      if (scale < 1 && size < 3.2) continue;
-      const x = ox * cs - oy * sn;
-      const y = ox * sn + oy * cs;
-      const sprite = new Sprite(mat);
-      sprite.position
-        .copy(center)
-        .addScaledVector(tangent, x * scale)
-        .addScaledVector(bitangent, y * scale);
-      const w = size * scale;
-      sprite.scale.set(w, w * 0.7, 1);
-      g.add(sprite);
-    }
-  });
-  return g;
-}
-
-function createMoon(): Mesh {
-  const mesh = new Mesh(
-    new SphereGeometry(3.2, 16, 16),
+function createMoonGlow(color: string, radius: number): Mesh {
+  const glow = new Mesh(
+    new SphereGeometry(radius, 24, 20),
     new ShaderMaterial({
-      uniforms: { uColor: { value: new Color("#cfc6b4") } },
-      vertexShader: `varying vec3 vN; void main(){ vN = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `varying vec3 vN; uniform vec3 uColor; void main(){ float l = 0.35 + 0.65 * max(0.0, dot(normalize(vN), vec3(0.4,0.6,0.3))); gl_FragColor = vec4(uColor * l, 1.0); }`,
+      uniforms: { uGlow: { value: new Color(color) } },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+          vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+          vNormal = normalize(normalMatrix * normal);
+          vView = normalize(-viewPosition.xyz);
+          gl_Position = projectionMatrix * viewPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uGlow;
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+          float rim = pow(1.0 - max(dot(normalize(vNormal), normalize(vView)), 0.0), 2.6);
+          float alpha = rim * 0.16;
+          gl_FragColor = vec4(uGlow, alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending,
+      side: BackSide,
+      toneMapped: false,
     }),
   );
-  mesh.position.set(-70, 38, -90);
-  return mesh;
+  glow.name = "moon-faint-glow";
+  glow.scale.setScalar(1.16);
+  return glow;
 }
 
-function createMotes(): Group {
-  const g = new Group();
-  g.name = "motes";
-  const geo = new SphereGeometry(0.045, 5, 4);
-  const mat = new MeshStandardMaterial({
-    color: "#f6e7b8",
-    emissive: "#f0d48a",
-    emissiveIntensity: 1.3,
-    transparent: true,
-    opacity: 0.65,
-    depthWrite: false,
+function moonMaterial(color: string): ShaderMaterial {
+  return new ShaderMaterial({
+    uniforms: { uColor: { value: new Color(color) } },
+    vertexShader: `varying vec3 vN; void main(){ vN = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `varying vec3 vN; uniform vec3 uColor; void main(){ float l = 0.35 + 0.65 * max(0.0, dot(normalize(vN), vec3(0.4,0.6,0.3))); gl_FragColor = vec4(uColor * l, 1.0); }`,
   });
-  for (let i = 0; i < 36; i++) {
-    const mote = new Mesh(geo, mat);
-    const theta = 0.45 + ((i * 0.37) % 2.1);
-    const phi = i * 1.7;
-    mote.position.copy(sphToCart(PLANET.radius + 5 + (i % 5) * 1.4, theta, phi));
-    g.add(mote);
-  }
-  return g;
 }
 
-export function updateClouds(group: Group, dt: number): void {
-  const clouds = group.getObjectByName("clouds");
-  if (clouds) clouds.rotateY(dt * 0.012);
-  const motes = group.getObjectByName("motes");
-  if (motes) motes.rotateY(dt * 0.018);
+const RING_SOIL_COLORS = ["#d2a832", "#c69524", "#dfb747"];
+const RING_BAND_SPEEDS = [0.0001, -0.00013, 0.00016];
+
+export function createPlanetaryRings(): Group {
+  const rings = new Group();
+  rings.name = "planetary-soil-rings";
+  rings.rotation.set(...PLANETARY_RING.orientation);
+  rings.visible = PLANETARY_RING.visibleByDefault;
+
+  const geometry = createAsteroidGeometry();
+  for (let i = 0; i < PLANETARY_RING.asteroidCounts.length; i++) {
+    const count = PLANETARY_RING.asteroidCounts[i];
+    const material = new MeshStandardMaterial({
+      color: "#ffffff",
+      roughness: 0.64,
+      metalness: 0.24,
+      flatShading: true,
+      emissive: "#a87912",
+      emissiveIntensity: PLANETARY_RING.asteroidGlowIntensity,
+      fog: false,
+    });
+    const belt = new InstancedMesh(geometry, material, count);
+    belt.name = `planetary-asteroid-belt-${i + 1}`;
+    belt.frustumCulled = false;
+    const centers = scatterAsteroids(
+      belt,
+      i,
+      PLANETARY_RING.bandOffsets[i],
+      PLANETARY_RING.bandWidths[i],
+    );
+    const lodGeometry = new BufferGeometry();
+    lodGeometry.setAttribute("position", new Float32BufferAttribute(centers, 3));
+    const lod = new Points(
+      lodGeometry,
+      new PointsMaterial({
+        color: RING_SOIL_COLORS[i],
+        size: PLANETARY_RING.pointLodSize,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    lod.name = "planetary-asteroid-point-lod";
+    lod.frustumCulled = false;
+
+    const beltGroup = new Group();
+    beltGroup.name = `planetary-asteroid-belt-${i + 1}`;
+    beltGroup.userData.flowSpeed = RING_BAND_SPEEDS[i];
+    beltGroup.add(belt, lod);
+    rings.add(beltGroup);
+  }
+  return rings;
+}
+
+export function updatePlanetaryRings(group: Group, dt: number, cameraRadius = 0): void {
+  if (!group.visible) return;
+  const pointLodFade = smoothstep(
+    PLANETARY_RING.pointLodFadeStart,
+    PLANETARY_RING.pointLodFadeEnd,
+    cameraRadius,
+  );
+  for (const belt of group.children) {
+    belt.rotateY((belt.userData.flowSpeed as number) * dt);
+    const lod = belt.getObjectByName("planetary-asteroid-point-lod") as Points | undefined;
+    if (lod) {
+      (lod.material as PointsMaterial).opacity = pointLodFade * PLANETARY_RING.pointLodOpacity;
+    }
+  }
+}
+
+function createAsteroidGeometry(): BufferGeometry {
+  const geometry = new SphereGeometry(1, 10, 8);
+  const positions = geometry.getAttribute("position");
+  for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i);
+    const y = positions.getY(i);
+    const z = positions.getZ(i);
+    const seed = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+    const roughness = 0.88 + (seed - Math.floor(seed)) * 0.24;
+    positions.setXYZ(i, x * roughness, y * roughness, z * roughness);
+  }
+  geometry.computeBoundingBox();
+  const bounds = geometry.boundingBox!;
+  const maxDimension = Math.max(
+    bounds.max.x - bounds.min.x,
+    bounds.max.y - bounds.min.y,
+    bounds.max.z - bounds.min.z,
+  );
+  geometry.scale(2 / maxDimension, 2 / maxDimension, 2 / maxDimension);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function scatterAsteroids(
+  belt: InstancedMesh,
+  index: number,
+  offset: number,
+  width: number,
+): Float32Array {
+  let seed = 0x9e3779b9 ^ (index + 1) * 0x85ebca6b;
+  const random = (): number => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let value = seed;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  const matrix = new Matrix4();
+  const position = new Vector3();
+  const scale = new Vector3();
+  const quaternion = new Quaternion();
+  const color = new Color();
+  const axis = new Vector3();
+  const radius = PLANETARY_RING_DISTANCE + offset;
+  const centers = new Float32Array(belt.count * 3);
+
+  for (let i = 0; i < belt.count; i++) {
+    const angle = random() * Math.PI * 2;
+    const radialOffset = (random() - 0.5) * width;
+    const orbitalRadius = radius + radialOffset;
+    position.set(Math.cos(angle) * orbitalRadius, (random() - 0.5) * 0.8, Math.sin(angle) * orbitalRadius);
+    centers.set([position.x, position.y, position.z], i * 3);
+    axis.set(random() - 0.5, random() - 0.5, random() - 0.5).normalize();
+    quaternion.setFromAxisAngle(axis, random() * Math.PI * 2);
+    const [minSizeRatio, maxSizeRatio] = PLANETARY_RING.asteroidSizeRatioRange;
+    const size =
+      MOON.radius *
+      MOON.secondScale *
+      (minSizeRatio + random() * (maxSizeRatio - minSizeRatio));
+    scale.setScalar(size);
+    matrix.compose(position, quaternion, scale);
+    belt.setMatrixAt(i, matrix);
+
+    const shade = 0.78 + random() * 0.36;
+    color.set(RING_SOIL_COLORS[index]).multiplyScalar(shade);
+    belt.setColorAt(i, color);
+  }
+
+  belt.instanceMatrix.needsUpdate = true;
+  if (belt.instanceColor) belt.instanceColor.needsUpdate = true;
+  return centers;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }

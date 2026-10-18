@@ -105,13 +105,11 @@ describe("flight", () => {
 
     flight.distance = nightSample!.s;
     updateFlight(flight, path, 5);
-    expect(flight.searchLight.visible).toBe(true);
-    expect(flight.searchLight.intensity).toBeGreaterThan(20);
+    expect(flight.searchLight.intensity.value).toBeGreaterThan(20);
 
     flight.distance = daySample!.s;
     updateFlight(flight, path, 5);
-    expect(flight.searchLight.visible).toBe(false);
-    expect(flight.searchLight.intensity).toBeLessThan(0.1);
+    expect(flight.searchLight.intensity.value).toBeLessThan(0.1);
   });
 
   it("adds a covered cockpit and paired animated wing-edge beacons", () => {
@@ -120,14 +118,12 @@ describe("flight", () => {
     expect(flight.craft.getObjectByName("rounded-engine-cowling")).toBeDefined();
     expect(flight.propeller.getObjectByName("rounded-propeller-spinner")).toBeDefined();
     expect(flight.craft.getObjectByName("search-light-lens")).toBeDefined();
-    expect(flight.searchLight.isSpotLight).toBe(true);
-    expect(Math.tan(flight.searchLight.angle) / Math.tan(0.78)).toBeCloseTo(3, 0);
-    expect(flight.searchLight.penumbra).toBeGreaterThan(0.85);
-    expect(flight.searchLight.target).toBe(flight.searchLightTarget);
+    expect(flight.searchLight.intensity.value).toBe(0);
     expect(flight.craft.getObjectByName("wing-edge-beacon")).toBeDefined();
     expect(flight.wingLights).toHaveLength(2);
     expect(flight.wingLights.every((light) => light.emissiveIntensity === 0)).toBe(true);
     updateFlight(flight, path, 0.05);
+    expect(flight.searchLight.direction.length()).toBeCloseTo(1);
     expect(flight.wingLights.every((light) => light.emissiveIntensity > 0)).toBe(true);
   });
 

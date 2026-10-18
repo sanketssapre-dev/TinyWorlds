@@ -28,7 +28,7 @@ export const SITES: Record<string, SphericalSite> = {
   arch: { id: "arch", theta: 1.32, phi: 0.86, kind: "arch" },
   lake: { id: "lake", theta: 1.42, phi: 1.18, kind: "lake" },
   lake2: { id: "lake2", theta: 1.68, phi: 4.05, kind: "lake" },
-  pool: { id: "pool", theta: 1.55, phi: 1.42, kind: "pool" },
+  pool: { id: "pool", theta: 1.55, phi: 1.65, kind: "pool" },
   peakNorth: { id: "peakNorth", theta: 0.68, phi: 2.32, kind: "peak" },
   peakWest: { id: "peakWest", theta: 1.05, phi: 3.9, kind: "peak" },
   peakEast: { id: "peakEast", theta: 1.12, phi: 6.05, kind: "peak" },

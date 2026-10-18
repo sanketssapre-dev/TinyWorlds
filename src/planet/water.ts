@@ -45,6 +45,7 @@ void main() {
 
 /** Angular radius of the primary lake's water cap. */
 export const MAIN_LAKE_ANGULAR = 0.24;
+export const POOL_ANGULAR = 0.055;
 
 export const waterTime = { value: 0 };
 
@@ -53,7 +54,7 @@ export function createWater(): Group {
   group.name = "water";
   group.add(lake(SITES.lake.theta, SITES.lake.phi, MAIN_LAKE_ANGULAR, "#397e91", 10, 42, 0.16));
   group.add(lake(SITES.lake2.theta, SITES.lake2.phi, 0.125, "#39788c"));
-  group.add(lake(SITES.pool.theta, SITES.pool.phi, 0.055, "#438b87"));
+  group.add(lake(SITES.pool.theta, SITES.pool.phi, POOL_ANGULAR, "#438b87"));
   return group;
 }
 

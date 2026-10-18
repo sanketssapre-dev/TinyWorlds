@@ -11,16 +11,15 @@ import {
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   Matrix4,
-  Object3D,
   PlaneGeometry,
   Quaternion,
   RepeatWrapping,
   SRGBColorSpace,
   SphereGeometry,
-  SpotLight,
+  Uniform,
   Vector3,
 } from "three";
-import { FLIGHT } from "../config";
+import { FLIGHT, SEARCH_LIGHT } from "../config";
 import { wrap01 } from "../math/sphere";
 import { mergeRigidMeshes } from "../render/mergeRigid";
 import { RailwayPath, getSampleAt, scratchSample } from "../railway/path";
@@ -66,26 +65,35 @@ export type FlightState = {
   speed: number;
   craft: Group;
   propeller: Group;
-  searchLight: SpotLight;
-  searchLightTarget: Object3D;
+  searchLight: GroundSearchLight;
   wingLights: MeshStandardMaterial[];
   spin: number;
   posed: boolean;
 };
 
+export type GroundSearchLight = {
+  position: Vector3;
+  direction: Vector3;
+  intensity: Uniform<number>;
+};
+
+const searchLightLocalPosition = new Vector3(0, -0.2, -0.12);
+const searchLightLocalDirection = new Vector3(0, -11.8, 1.62).normalize();
+
 export function createFlight(): FlightState {
   const craft = buildBiplane();
   const propeller = craft.getObjectByName("propeller") as Group;
-  const { light: searchLight, target: searchLightTarget } = createSearchLight();
-  craft.add(searchLight, searchLightTarget);
   const wingLights = craft.userData.wingLights as MeshStandardMaterial[];
   return {
     distance: 12,
     speed: FLIGHT.speed,
     craft,
     propeller,
-    searchLight,
-    searchLightTarget,
+    searchLight: {
+      position: new Vector3(),
+      direction: new Vector3(),
+      intensity: new Uniform(0),
+    },
     wingLights,
     spin: 0,
     posed: false,
@@ -245,27 +253,20 @@ function updateWingLights(lights: MeshStandardMaterial[], time: number): void {
   for (const light of lights) light.emissiveIntensity = intensity;
 }
 
-function createSearchLight(): { light: SpotLight; target: Object3D } {
-  const target = new Object3D();
-  target.name = "search-light-aim";
-  target.position.set(0, -12, 1.5);
-
-  const light = new SpotLight("#ffe6a3", 0, 26, 1.25, 0.9, 2);
-  light.name = "aircraft-search-light";
-  light.position.set(0, -0.2, -0.12);
-  light.target = target;
-  light.castShadow = false;
-  light.visible = false;
-  return { light, target };
-}
-
 function updateSearchLight(state: FlightState, dt: number): void {
   groundNormal.copy(state.craft.position).normalize();
   const night = groundNormal.dot(sunDirection) < -0.12;
-  const targetIntensity = night ? 32 : 0;
-  state.searchLight.intensity +=
-    (targetIntensity - state.searchLight.intensity) * (1 - Math.exp(-3 * dt));
-  state.searchLight.visible = state.searchLight.intensity > 0.1;
+  const targetIntensity = night ? SEARCH_LIGHT.intensity : 0;
+  state.searchLight.intensity.value +=
+    (targetIntensity - state.searchLight.intensity.value) * (1 - Math.exp(-3 * dt));
+  state.searchLight.position
+    .copy(searchLightLocalPosition)
+    .applyQuaternion(state.craft.quaternion)
+    .add(state.craft.position);
+  state.searchLight.direction
+    .copy(searchLightLocalDirection)
+    .applyQuaternion(state.craft.quaternion)
+    .normalize();
 }
 
 /** Wooden blades and hub. Pitch is baked into the blade geometry so each mesh only turns around the shaft. */
