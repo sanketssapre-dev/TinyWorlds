@@ -2,7 +2,6 @@ import {
   BoxGeometry,
   BufferGeometry,
   CanvasTexture,
-  ConeGeometry,
   CylinderGeometry,
   DataTexture,
   DoubleSide,
@@ -12,17 +11,18 @@ import {
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   Matrix4,
+  Object3D,
   PlaneGeometry,
-  PointLight,
   Quaternion,
   RepeatWrapping,
   SRGBColorSpace,
   SphereGeometry,
+  SpotLight,
   Vector3,
 } from "three";
 import { FLIGHT } from "../config";
-import { mergeRigidMeshes } from "../render/mergeRigid";
 import { wrap01 } from "../math/sphere";
+import { mergeRigidMeshes } from "../render/mergeRigid";
 import { RailwayPath, getSampleAt, scratchSample } from "../railway/path";
 
 const basis = new Matrix4();
@@ -32,7 +32,8 @@ const localBank = new Quaternion();
 const bankAxis = new Vector3(0, 0, 1);
 const currentFwd = new Vector3();
 const turnAxis = new Vector3();
-
+const sunDirection = new Vector3(90, 55, 35).normalize();
+const groundNormal = new Vector3();
 const TURN = 0.72;
 
 const cream = new MeshStandardMaterial({ color: "#e6d3ae", roughness: 0.55 });
@@ -41,12 +42,22 @@ const wood = new MeshStandardMaterial({ color: "#3a2a20", roughness: 0.78 });
 const brass = new MeshStandardMaterial({ color: "#c6a15a", roughness: 0.38, metalness: 0.45 });
 const dark = new MeshStandardMaterial({ color: "#221c16", roughness: 0.65 });
 const leather = new MeshStandardMaterial({ color: "#4a3024", roughness: 0.7 });
-const glass = new MeshStandardMaterial({
+const canopyGlass = new MeshPhysicalMaterial({
   color: "#9fd0d8",
-  roughness: 0.15,
-  metalness: 0.05,
+  roughness: 0.12,
+  metalness: 0.02,
   transparent: true,
-  opacity: 0.55,
+  opacity: 0.38,
+  clearcoat: 0.9,
+  clearcoatRoughness: 0.08,
+  depthWrite: false,
+  side: DoubleSide,
+});
+const searchLightLens = new MeshStandardMaterial({
+  color: "#fff0ce",
+  emissive: "#ffcf78",
+  emissiveIntensity: 0.65,
+  roughness: 0.22,
 });
 const propWood = makePropellerWood();
 
@@ -55,6 +66,9 @@ export type FlightState = {
   speed: number;
   craft: Group;
   propeller: Group;
+  searchLight: SpotLight;
+  searchLightTarget: Object3D;
+  wingLights: MeshStandardMaterial[];
   spin: number;
   posed: boolean;
 };
@@ -62,11 +76,17 @@ export type FlightState = {
 export function createFlight(): FlightState {
   const craft = buildBiplane();
   const propeller = craft.getObjectByName("propeller") as Group;
+  const { light: searchLight, target: searchLightTarget } = createSearchLight();
+  craft.add(searchLight, searchLightTarget);
+  const wingLights = craft.userData.wingLights as MeshStandardMaterial[];
   return {
     distance: 12,
     speed: FLIGHT.speed,
     craft,
     propeller,
+    searchLight,
+    searchLightTarget,
+    wingLights,
     spin: 0,
     posed: false,
   };
@@ -77,6 +97,7 @@ export function updateFlight(state: FlightState, path: RailwayPath, dt: number):
   state.spin += dt * 22;
   pose(state, path, dt);
   state.propeller.rotation.z = state.spin;
+  updateWingLights(state.wingLights, state.spin / 22);
 }
 
 function pose(state: FlightState, path: RailwayPath, dt: number): void {
@@ -89,16 +110,16 @@ function pose(state: FlightState, path: RailwayPath, dt: number): void {
   if (!state.posed) {
     state.craft.quaternion.copy(targetQuat);
     state.posed = true;
-    return;
+  } else {
+    currentFwd.set(0, 0, 1).applyQuaternion(state.craft.quaternion);
+    turnAxis.crossVectors(currentFwd, f.tangent);
+    const turn = Math.max(-0.35, Math.min(0.35, turnAxis.dot(f.normal)));
+    localBank.setFromAxisAngle(bankAxis, -turn * 1.15);
+    targetQuat.multiply(localBank);
+    const k = 1 - Math.exp(-TURN * dt);
+    state.craft.quaternion.slerp(targetQuat, k);
   }
-
-  currentFwd.set(0, 0, 1).applyQuaternion(state.craft.quaternion);
-  turnAxis.crossVectors(currentFwd, f.tangent);
-  const turn = Math.max(-0.35, Math.min(0.35, turnAxis.dot(f.normal)));
-  localBank.setFromAxisAngle(bankAxis, -turn * 1.15);
-  targetQuat.multiply(localBank);
-  const k = 1 - Math.exp(-TURN * dt);
-  state.craft.quaternion.slerp(targetQuat, k);
+  updateSearchLight(state, dt);
 }
 
 function buildBiplane(): Group {
@@ -110,18 +131,27 @@ function buildBiplane(): Group {
   body.rotateX(Math.PI / 2);
   addGeo(hold, body, cream, 0, 0.28, -0.02);
 
-  const nose = new CylinderGeometry(0.1, 0.155, 0.28, 12);
+  const nose = new CylinderGeometry(0.16, 0.155, 0.2, 16);
   nose.rotateX(Math.PI / 2);
-  addGeo(hold, nose, brass, 0, 0.28, 0.72);
+  addGeo(hold, nose, brass, 0, 0.28, 0.69);
+  const noseCap = new Mesh(new SphereGeometry(1, 16, 10), brass);
+  noseCap.name = "rounded-engine-cowling";
+  noseCap.position.set(0, 0.28, 0.77);
+  noseCap.scale.set(0.155, 0.14, 0.1);
+  noseCap.castShadow = true;
+  hold.add(noseCap);
 
   add(hold, new BoxGeometry(0.22, 0.08, 0.2), leather, 0, 0.4, 0.12);
-  add(hold, new BoxGeometry(0.16, 0.1, 0.012), glass, 0, 0.44, 0.22);
   addGeo(hold, new SphereGeometry(0.055, 8, 6), dark, 0, 0.44, 0.1);
+  addCockpitCanopy(hold);
+  addSearchLightFixture(hold);
 
-  add(hold, new BoxGeometry(2.7, 0.035, 0.52), wing, 0, 0.16, 0.05);
-  add(hold, new BoxGeometry(2.45, 0.03, 0.46), wing, 0, 0.62, 0.0);
-  add(hold, new BoxGeometry(0.08, 0.04, 0.52), wood, -1.32, 0.16, 0.05);
-  add(hold, new BoxGeometry(0.08, 0.04, 0.52), wood, 1.32, 0.16, 0.05);
+  add(hold, new BoxGeometry(2.25, 0.035, 0.52), wing, 0, 0.16, 0.05);
+  add(hold, new BoxGeometry(2.7, 0.03, 0.46), wing, 0, 0.62, 0.0);
+  add(hold, new BoxGeometry(0.08, 0.04, 0.52), wood, -1.1, 0.16, 0.05);
+  add(hold, new BoxGeometry(0.08, 0.04, 0.52), wood, 1.1, 0.16, 0.05);
+  add(hold, new BoxGeometry(0.08, 0.035, 0.46), wood, -1.32, 0.62, 0);
+  add(hold, new BoxGeometry(0.08, 0.035, 0.46), wood, 1.32, 0.62, 0);
 
   for (const x of [-0.55, 0.55]) {
     add(hold, new BoxGeometry(0.03, 0.46, 0.03), wood, x, 0.39, 0.16);
@@ -154,18 +184,88 @@ function buildBiplane(): Group {
     addGeo(hold, pipe, dark, x, 0.36, 0.48);
   }
 
-  const rigid = [...hold.children] as Mesh[];
+  const rigid = [...hold.children].filter((mesh) => mesh !== noseCap) as Mesh[];
+  hold.remove(noseCap);
   hold.clear();
   mergeRigidMeshes(g, rigid);
+  g.add(noseCap);
 
   g.add(buildPropeller());
   addWingScript(g);
-
-  addBellyLamp(g, 0, 0.05);
-  addBellyLamp(g, -1.05, -0.05);
-  addBellyLamp(g, 1.05, -0.05);
+  g.userData.wingLights = addWingLights(g);
 
   return g;
+}
+
+function addCockpitCanopy(parent: Group): void {
+  const canopy = new Mesh(new SphereGeometry(1, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), canopyGlass);
+  canopy.name = "covered-cockpit";
+  canopy.position.set(0, 0.4, 0.04);
+  canopy.scale.set(0.17, 0.18, 0.3);
+  canopy.castShadow = false;
+  parent.add(canopy);
+}
+
+function addSearchLightFixture(parent: Group): void {
+  const housing = new CylinderGeometry(0.075, 0.095, 0.12, 10);
+  addGeo(parent, housing, dark, 0, 0.1, -0.12);
+  const lens = new Mesh(new SphereGeometry(0.065, 10, 8), searchLightLens);
+  lens.name = "search-light-lens";
+  lens.position.set(0, 0.025, -0.12);
+  parent.add(lens);
+}
+
+function addWingLights(parent: Group): MeshStandardMaterial[] {
+  const lights: MeshStandardMaterial[] = [];
+  for (const x of [-1.34, 1.34]) {
+    const material = new MeshStandardMaterial({
+      color: "#e8fbff",
+      emissive: "#75e5ff",
+      emissiveIntensity: 0,
+      roughness: 0.25,
+    });
+    const beacon = new Mesh(new SphereGeometry(0.045, 8, 6), material);
+    beacon.name = "wing-edge-beacon";
+    beacon.position.set(x, 0.655, 0);
+    beacon.castShadow = false;
+    parent.add(beacon);
+    lights.push(material);
+  }
+  return lights;
+}
+
+function updateWingLights(lights: MeshStandardMaterial[], time: number): void {
+  const phase = time % 1.5;
+  const pulse = (start: number): number => {
+    const t = phase - start;
+    if (t < 0 || t > 0.14) return 0;
+    return Math.min(1, t / 0.025, (0.14 - t) / 0.035);
+  };
+  const intensity = Math.max(pulse(0), pulse(0.22)) * 2.8;
+  for (const light of lights) light.emissiveIntensity = intensity;
+}
+
+function createSearchLight(): { light: SpotLight; target: Object3D } {
+  const target = new Object3D();
+  target.name = "search-light-aim";
+  target.position.set(0, -12, 1.5);
+
+  const light = new SpotLight("#ffe6a3", 0, 26, 1.25, 0.9, 2);
+  light.name = "aircraft-search-light";
+  light.position.set(0, -0.2, -0.12);
+  light.target = target;
+  light.castShadow = false;
+  light.visible = false;
+  return { light, target };
+}
+
+function updateSearchLight(state: FlightState, dt: number): void {
+  groundNormal.copy(state.craft.position).normalize();
+  const night = groundNormal.dot(sunDirection) < -0.12;
+  const targetIntensity = night ? 32 : 0;
+  state.searchLight.intensity +=
+    (targetIntensity - state.searchLight.intensity) * (1 - Math.exp(-3 * dt));
+  state.searchLight.visible = state.searchLight.intensity > 0.1;
 }
 
 /** Wooden blades and hub. Pitch is baked into the blade geometry so each mesh only turns around the shaft. */
@@ -180,10 +280,10 @@ function buildPropeller(): Group {
   hub.castShadow = true;
   prop.add(hub);
 
-  const capGeo = new ConeGeometry(0.052, 0.1, 12);
-  capGeo.rotateX(Math.PI / 2);
-  capGeo.translate(0, 0, 0.09);
-  const cap = new Mesh(capGeo, propWood);
+  const cap = new Mesh(new SphereGeometry(0.055, 12, 10), propWood);
+  cap.name = "rounded-propeller-spinner";
+  cap.position.set(0, 0, 0.075);
+  cap.scale.set(1, 1, 1.25);
   cap.castShadow = true;
   prop.add(cap);
 
@@ -201,12 +301,12 @@ function buildPropeller(): Group {
   return prop;
 }
 
-/** Cursive gold "FlyingRhino" on the upper wing, readable from above and from behind. */
+/** Crisp, narrow "Flying Rhino" print on the upper wing, readable from above. */
 function addWingScript(parent: Group): void {
   const map = paintWingScript();
   if (!map) return;
 
-  const plate = new Mesh(new PlaneGeometry(2.16, 0.38), wingScriptMaterial(map));
+  const plate = new Mesh(new PlaneGeometry(2.0, 0.3), wingScriptMaterial(map));
   plate.name = "wing-script";
   // Plane starts facing +Z with text upright. Tip it onto the wing, then mirror X/Y so
   // the line runs left-to-right on screen and the letter tops point toward the nose.
@@ -224,10 +324,10 @@ function wingScriptMaterial(map: CanvasTexture): MeshPhysicalMaterial {
     emissive: "#ffbf45",
     emissiveMap: map,
     emissiveIntensity: 0.48,
-    metalness: 0.82,
-    roughness: 0.22,
-    clearcoat: 0.9,
-    clearcoatRoughness: 0.16,
+    metalness: 0.12,
+    roughness: 0.42,
+    clearcoat: 0.25,
+    clearcoatRoughness: 0.3,
     transparent: true,
     alphaTest: 0.05,
     depthWrite: false,
@@ -241,58 +341,40 @@ function wingScriptMaterial(map: CanvasTexture): MeshPhysicalMaterial {
 function paintWingScript(): CanvasTexture | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
-  canvas.width = 2048;
-  canvas.height = 360;
+  canvas.width = 1600;
+  canvas.height = 240;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  const label = "FlyingRhino";
-  const family = '"Segoe Script", "Brush Script MT", "Lucida Handwriting", cursive';
-  let size = 280;
+  const label = "Flying Rhino";
+  const family = '"Arial Narrow", Arial, sans-serif';
+  let size = 190;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `600 ${size}px ${family}`;
-  const fit = (canvas.width * 0.9) / ctx.measureText(label).width;
+  ctx.font = `700 ${size}px ${family}`;
+  const fit = (canvas.width * 0.92) / ctx.measureText(label).width;
   if (fit < 1) {
     size = Math.floor(size * fit);
-    ctx.font = `600 ${size}px ${family}`;
+    ctx.font = `700 ${size}px ${family}`;
   }
 
   const x = canvas.width / 2;
   const y = canvas.height / 2 + size * 0.04;
 
   ctx.lineJoin = "round";
-  ctx.lineWidth = Math.max(6, size * 0.045);
-  ctx.strokeStyle = "#4a300c";
+  ctx.lineWidth = Math.max(3, size * 0.025);
+  ctx.strokeStyle = "#3f1920";
   ctx.strokeText(label, x, y);
 
   ctx.save();
-  ctx.shadowColor = "#ffd36a";
-  ctx.shadowBlur = size * 0.16;
-  ctx.fillStyle = "#b8862a";
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#fff2cc";
   ctx.fillText(label, x, y);
   ctx.restore();
 
-  const gold = ctx.createLinearGradient(0, y - size * 0.55, 0, y + size * 0.5);
-  gold.addColorStop(0, "#fff7d6");
-  gold.addColorStop(0.28, "#f3d27a");
-  gold.addColorStop(0.48, "#e0ae3c");
-  gold.addColorStop(0.62, "#fff1c2");
-  gold.addColorStop(0.8, "#c8922a");
-  gold.addColorStop(1, "#7a5414");
-  ctx.fillStyle = gold;
+  ctx.fillStyle = "#fff2cc";
   ctx.fillText(label, x, y);
-
-  ctx.save();
-  ctx.globalCompositeOperation = "source-atop";
-  const sheen = ctx.createLinearGradient(0, y - size * 0.48, 0, y + size * 0.05);
-  sheen.addColorStop(0, "rgba(255, 252, 236, 0)");
-  sheen.addColorStop(0.42, "rgba(255, 252, 236, 0.15)");
-  sheen.addColorStop(0.55, "rgba(255, 250, 230, 0.72)");
-  sheen.addColorStop(0.7, "rgba(255, 252, 236, 0)");
-  ctx.fillStyle = sheen;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.restore();
 
   const map = new CanvasTexture(canvas);
   map.colorSpace = SRGBColorSpace;
@@ -328,22 +410,6 @@ function makePropellerWood(): MeshStandardMaterial {
   map.colorSpace = SRGBColorSpace;
   map.needsUpdate = true;
   return new MeshStandardMaterial({ map, roughness: 0.82, metalness: 0 });
-}
-
-const bulbMat = new MeshStandardMaterial({
-  color: "#ffe6c4",
-  emissive: "#ffc56a",
-  emissiveIntensity: 1.6,
-});
-
-function addBellyLamp(parent: Group, x: number, z: number): void {
-  const lamp = new PointLight("#ffd2a0", x === 0 ? 3 : 1.2, 6, 2);
-  lamp.position.set(x, -0.15, z);
-  parent.add(lamp);
-
-  const bulb = new Mesh(new SphereGeometry(0.04, 8, 8), bulbMat);
-  bulb.position.set(x, -0.02, z);
-  parent.add(bulb);
 }
 
 function add(

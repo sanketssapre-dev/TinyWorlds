@@ -15,6 +15,28 @@ describe("flight", () => {
     expect(path.samples[0].position.distanceTo(path.samples[path.samples.length - 1].position)).toBeLessThan(1e-4);
   });
 
+  it("provides three distinct randomized route designs with safe terrain clearance", () => {
+    const alternatives = [0, 1, 2].map((variant) => createFlightPath(512, 1, variant));
+    for (const alternative of alternatives) {
+      expect(alternative.samples[0].position.distanceTo(alternative.samples.at(-1)!.position)).toBeLessThan(
+        1e-4,
+      );
+      for (const sample of alternative.samples) {
+        expect(sample.elevation).toBeGreaterThanOrEqual(FLIGHT.minClearance - 0.05);
+      }
+    }
+    for (let i = 0; i < alternatives.length; i++) {
+      for (let j = i + 1; j < alternatives.length; j++) {
+        const a = alternatives[i].samples;
+        const b = alternatives[j].samples;
+        const meanSeparation =
+          a.slice(0, -1).reduce((sum, sample, index) => sum + sample.position.distanceTo(b[index].position), 0) /
+          (a.length - 1);
+        expect(meanSeparation).toBeGreaterThan(10);
+      }
+    }
+  });
+
   it("advances by speed × elapsed time and wraps the circuit", () => {
     const flight = createFlight();
     flight.distance = path.totalLength - 1;
@@ -70,6 +92,43 @@ describe("flight", () => {
     expect(flight.propeller.rotation.x).toBe(0);
     expect(flight.propeller.rotation.y).toBe(0);
     expect(flight.propeller.position.distanceTo(parked)).toBe(0);
+  });
+
+  it("shows the broad searchlight only on the dark side of the planet", () => {
+    const flight = createFlight();
+    flight.speed = 0;
+    const sun = new Vector3(90, 55, 35).normalize();
+    const nightSample = path.samples.find((sample) => sample.position.clone().normalize().dot(sun) < -0.3);
+    const daySample = path.samples.find((sample) => sample.position.clone().normalize().dot(sun) > 0.3);
+    expect(nightSample).toBeDefined();
+    expect(daySample).toBeDefined();
+
+    flight.distance = nightSample!.s;
+    updateFlight(flight, path, 5);
+    expect(flight.searchLight.visible).toBe(true);
+    expect(flight.searchLight.intensity).toBeGreaterThan(20);
+
+    flight.distance = daySample!.s;
+    updateFlight(flight, path, 5);
+    expect(flight.searchLight.visible).toBe(false);
+    expect(flight.searchLight.intensity).toBeLessThan(0.1);
+  });
+
+  it("adds a covered cockpit and paired animated wing-edge beacons", () => {
+    const flight = createFlight();
+    expect(flight.craft.getObjectByName("covered-cockpit")).toBeDefined();
+    expect(flight.craft.getObjectByName("rounded-engine-cowling")).toBeDefined();
+    expect(flight.propeller.getObjectByName("rounded-propeller-spinner")).toBeDefined();
+    expect(flight.craft.getObjectByName("search-light-lens")).toBeDefined();
+    expect(flight.searchLight.isSpotLight).toBe(true);
+    expect(Math.tan(flight.searchLight.angle) / Math.tan(0.78)).toBeCloseTo(3, 0);
+    expect(flight.searchLight.penumbra).toBeGreaterThan(0.85);
+    expect(flight.searchLight.target).toBe(flight.searchLightTarget);
+    expect(flight.craft.getObjectByName("wing-edge-beacon")).toBeDefined();
+    expect(flight.wingLights).toHaveLength(2);
+    expect(flight.wingLights.every((light) => light.emissiveIntensity === 0)).toBe(true);
+    updateFlight(flight, path, 0.05);
+    expect(flight.wingLights.every((light) => light.emissiveIntensity > 0)).toBe(true);
   });
 
   it("keeps the wooden blades on the propeller shaft", () => {

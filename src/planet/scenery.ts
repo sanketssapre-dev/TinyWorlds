@@ -4,10 +4,12 @@ import {
   ConeGeometry,
   CylinderGeometry,
   DynamicDrawUsage,
+  Float32BufferAttribute,
   Group,
   InstancedMesh,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   DoubleSide,
   MeshStandardMaterial,
   Object3D,
@@ -15,6 +17,10 @@ import {
   PointLight,
   Quaternion,
   SphereGeometry,
+  CircleGeometry,
+  ExtrudeGeometry,
+  Shape,
+  TorusGeometry,
   Vector3,
 } from "three";
 import { PLANET } from "../config";
@@ -31,7 +37,7 @@ const seatQuat = new Quaternion();
 const seatScale = new Vector3();
 const seatMat = new Matrix4();
 
-const GROVES = [
+const GROVES: { theta: number; phi: number; reach: number; count: number; lakeside?: boolean }[] = [
   { theta: SITES.ancientTree.theta, phi: SITES.ancientTree.phi, reach: 0.2, count: 150 },
   { theta: 1.52, phi: 2.12, reach: 0.18, count: 120 },
   { theta: 1.28, phi: 5.42, reach: 0.17, count: 110 },
@@ -42,6 +48,31 @@ const GROVES = [
   { theta: 1.71, phi: 5.14, reach: 0.28, count: 200 },
   { theta: 0.96, phi: 0.76, reach: 0.28, count: 220 },
   { theta: 1.9, phi: 3.5, reach: 0.3, count: 210 },
+  { theta: 0.84, phi: SITES.lake.phi, reach: 0.18, count: 42, lakeside: true },
+  { theta: 2.0, phi: SITES.lake.phi, reach: 0.18, count: 42, lakeside: true },
+  { theta: 1.36, phi: SITES.lake2.phi, reach: 0.12, count: 36, lakeside: true },
+  { theta: 2.0, phi: SITES.lake2.phi, reach: 0.12, count: 36, lakeside: true },
+];
+const GROVE_TREE_SCALE = 2;
+// Increasing each existing grove's radius by sqrt(2) doubles its nominal footprint.
+const GROVE_COVERAGE_SCALE = Math.SQRT2;
+const WOODLAND_CLUSTER_SIZE = 4;
+const WOODLAND_CLUSTER_SPACING = 0.95;
+const VILLAGE_SLICE_COUNT = 6;
+const VILLAGE_SLICE_WIDTH = (Math.PI * 2) / VILLAGE_SLICE_COUNT;
+
+type VillageLayout = {
+  farms: readonly number[];
+  sheepSlice: number | null;
+  windmillSlice: number | null;
+};
+
+const VILLAGE_LAYOUTS: readonly VillageLayout[] = [
+  { farms: [3, 4], sheepSlice: 2, windmillSlice: null },
+  { farms: [3, 4], sheepSlice: null, windmillSlice: 2 },
+  { farms: [2, 3], sheepSlice: null, windmillSlice: 5 },
+  { farms: [], sheepSlice: null, windmillSlice: null },
+  { farms: [2, 3], sheepSlice: 5, windmillSlice: null },
 ];
 
 type Settlement = {
@@ -53,16 +84,20 @@ type Settlement = {
 
 /** Two-storey cottages and a windmill. Not the airstrip village. */
 const STACKED_HOUSES: readonly (readonly number[])[] = [[], [6, 10, 12], [8, 10, 12], [], []];
-const MILL_ANGLE: readonly (number | null)[] = [null, 2.8, 0.2, null, null];
+const MILL_YAW: readonly (number | null)[] = [null, 2.8, 0.2, null, null];
 
 /** Short packed-earth strip on the northeast side of this village, outside the fence. */
 const LANDING_VILLAGE = 3;
+const ACTIVE_VILLAGES = new Set([0, 2, LANDING_VILLAGE]);
 const LANDING_ANGLE = Math.PI * 0.75;
 const STRIP_CLEARANCE = 0.034;
-const STRIP_LENGTH = 1.85;
-const STRIP_WIDTH = 0.62;
+const STRIP_SCALE = 4;
+const STRIP_LENGTH = 1.85 * STRIP_SCALE;
+const STRIP_WIDTH = 0.36 * STRIP_SCALE;
 const TERMINAL_ALONG = -0.2;
-const TERMINAL_SIDE = 0.86;
+const TERMINAL_SIDE = STRIP_WIDTH / 2 + 0.55;
+const TOWER_ALONG = 0.78;
+const LANDING_TREE_CLEARANCE = 0.95;
 
 const SETTLEMENTS: Settlement[] = [
   {
@@ -173,6 +208,15 @@ export const sceneryTime = { value: 0 };
 
 type FlickerNode = { obj: Object3D; phase: number };
 type FireNode = { light: PointLight; phase: number; base: number };
+type SheepActor = {
+  obj: Group;
+  villageTheta: number;
+  villagePhi: number;
+  sliceCenter: number;
+  lane: number;
+  phase: number;
+  legs: Object3D[];
+};
 
 type LifeActors = {
   crown: Object3D | null;
@@ -183,6 +227,7 @@ type LifeActors = {
   smokes: Object3D[];
   lamps: Mesh[];
   sails: FlickerNode[];
+  sheep: SheepActor[];
 };
 
 function emptyLife(): LifeActors {
@@ -195,6 +240,7 @@ function emptyLife(): LifeActors {
     smokes: [],
     lamps: [],
     sails: [],
+    sheep: [],
   };
 }
 
@@ -260,9 +306,26 @@ function nearWater(theta: number, phi: number): boolean {
   );
 }
 
+const LAKESIDE_GROVES = [
+  ...[0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2].map((angle) => ({
+    ...ringPoint(SITES.lake.theta, SITES.lake.phi, 0.31, angle),
+    reach: 0.11,
+    count: 54,
+    lakeside: true,
+  })),
+  ...[0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2].map((angle) => ({
+    ...ringPoint(SITES.lake2.theta, SITES.lake2.phi, 0.2, angle),
+    reach: 0.085,
+    count: 46,
+    lakeside: true,
+  })),
+];
+
 function insidePaddock(theta: number, phi: number): boolean {
   return SETTLEMENTS.some(
-    (site) => angularDistance(theta, phi, site.theta, site.phi) < fenceRadius(site) + 0.01,
+    (site, index) =>
+      ACTIVE_VILLAGES.has(index) &&
+      angularDistance(theta, phi, site.theta, site.phi) < fenceRadius(site) + 0.01,
   );
 }
 
@@ -275,19 +338,31 @@ function nearLandingStrip(theta: number, phi: number): boolean {
   const radial = dt * Math.cos(LANDING_ANGLE) + dp * Math.sin(LANDING_ANGLE);
   const center = fenceRadius(site) + STRIP_CLEARANCE;
   const runway =
-    Math.abs(along) < (STRIP_LENGTH / 2 + 0.28) / PLANET.radius &&
-    Math.abs(radial - center) < (STRIP_WIDTH / 2 + 0.24) / PLANET.radius;
+    Math.abs(along) < (STRIP_LENGTH / 2 + LANDING_TREE_CLEARANCE) / PLANET.radius &&
+    Math.abs(radial - center) < (STRIP_WIDTH / 2 + LANDING_TREE_CLEARANCE) / PLANET.radius;
   const terminal =
-    Math.abs(along - TERMINAL_ALONG / PLANET.radius) < 0.55 / PLANET.radius &&
-    Math.abs(radial - (center + TERMINAL_SIDE / PLANET.radius)) < 0.45 / PLANET.radius;
-  return runway || terminal;
+    Math.abs(along - TERMINAL_ALONG / PLANET.radius) <
+      (0.55 + LANDING_TREE_CLEARANCE) / PLANET.radius &&
+    Math.abs(radial - (center + TERMINAL_SIDE / PLANET.radius)) <
+      (0.45 + LANDING_TREE_CLEARANCE) / PLANET.radius;
+  const tower =
+    Math.abs(along - (TERMINAL_ALONG + TOWER_ALONG) / PLANET.radius) <
+      (0.42 + LANDING_TREE_CLEARANCE) / PLANET.radius &&
+    Math.abs(radial - (center + TERMINAL_SIDE / PLANET.radius)) <
+      (0.4 + LANDING_TREE_CLEARANCE) / PLANET.radius;
+  return runway || terminal || tower;
 }
 
-function canPlantTree(theta: number, phi: number, path: RailwayPath): boolean {
+function canPlantTree(
+  theta: number,
+  phi: number,
+  path: RailwayPath,
+  lakeside = false,
+): boolean {
   const h = heightOffset(theta, phi);
-  if (h < -0.05 || h > 6.4) return false;
-  if (slopeMagnitude(theta, phi) > 6.5) return false;
-  if (nearWater(theta, phi)) return false;
+  if (h < (lakeside ? -0.85 : -0.05) || h > 6.4) return false;
+  if (slopeMagnitude(theta, phi) > (lakeside ? 9 : 6.5)) return false;
+  if (!lakeside && nearWater(theta, phi)) return false;
   if (insidePaddock(theta, phi)) return false;
   if (nearLandingStrip(theta, phi)) return false;
   const pos = sphToCart(surfaceRadius(theta, phi), theta, phi);
@@ -324,17 +399,19 @@ function createTrees(path: RailwayPath): Group {
   const birchLeaf = new MeshStandardMaterial({ color: "#8aa86e", roughness: 0.78 });
   for (const mat of [leafA, leafB, leafC, boughMat, pineMat, birchLeaf]) swayFoliage(mat);
 
-  const candidates: { theta: number; phi: number; kind: number; scale: number }[] = [];
-  for (const grove of GROVES) {
-    for (let i = 0; i < grove.count; i++) {
-      const ang = Math.sqrt(hash01(i, grove.theta, 1, 3)) * grove.reach;
+  const candidates: { theta: number; phi: number; kind: number; scale: number; snowy: boolean }[] =
+    [];
+  for (const grove of [...GROVES, ...LAKESIDE_GROVES]) {
+    for (let i = 0; i < grove.count * GROVE_TREE_SCALE; i++) {
+      const ang = Math.sqrt(hash01(i, grove.theta, 1, 3)) * grove.reach * GROVE_COVERAGE_SCALE;
       const rot = hash01(i, grove.phi, 2, 5) * Math.PI * 2;
       const theta = grove.theta + Math.cos(rot) * ang;
       const phi = grove.phi + (Math.sin(rot) * ang) / Math.max(0.35, Math.sin(grove.theta));
-      if (!canPlantTree(theta, phi, path)) continue;
-      const kind = treeKind(theta, phi, i, 8);
+      if (!canPlantTree(theta, phi, path, grove.lakeside)) continue;
+      const snowy = heightOffset(theta, phi) > 5.7;
+      const kind = snowy ? 1 : treeKind(theta, phi, i, 8);
       const scale = 0.95 + hash01(theta, phi, i, 12) * 1.15;
-      candidates.push({ theta, phi, kind, scale });
+      candidates.push({ theta, phi, kind, scale, snowy });
     }
   }
   const n = 420;
@@ -350,9 +427,46 @@ function createTrees(path: RailwayPath): Group {
     const wood =
       fbm3(x * 2.4, y * 2.4, z * 2.4, 3, 2, 0.5, 29) > 0.22 && hash01(x, y, z, 4) > 0.55;
     if (!wood || !canPlantTree(theta, az, path)) continue;
-    const kind = treeKind(x, y, z, 8);
-    const scale = 0.75 + hash01(x, y, z, 12) * 0.7;
-    candidates.push({ theta, phi: az, kind, scale });
+    const cluster: { theta: number; phi: number; kind: number; scale: number; snowy: boolean }[] =
+      [];
+    for (let clusterIndex = 0; clusterIndex < WOODLAND_CLUSTER_SIZE; clusterIndex++) {
+      const angle = (clusterIndex * Math.PI * 2) / (WOODLAND_CLUSTER_SIZE - 1);
+      const distance =
+        clusterIndex === 0
+          ? 0
+          : WOODLAND_CLUSTER_SPACING * (0.85 + hash01(i, clusterIndex, 31, 32) * 0.3);
+      const clusterTheta = theta + (Math.cos(angle) * distance) / PLANET.radius;
+      const clusterPhi =
+        az + (Math.sin(angle) * distance) / (PLANET.radius * Math.max(0.35, Math.sin(theta)));
+      if (!canPlantTree(clusterTheta, clusterPhi, path)) continue;
+      const snowy = heightOffset(clusterTheta, clusterPhi) > 5.7;
+      const kind = snowy ? 1 : treeKind(x, y, z, 8 + clusterIndex);
+      const scale = 0.75 + hash01(x, y, z, 12 + clusterIndex) * 0.7;
+      cluster.push({ theta: clusterTheta, phi: clusterPhi, kind, scale, snowy });
+    }
+    if (cluster.length >= 3) candidates.push(...cluster);
+  }
+
+  for (const peak of [SITES.peakNorth, SITES.peakWest, SITES.peakEast]) {
+    let planted = 0;
+    for (const radius of [0.12, 0.18, 0.24]) {
+      for (let i = 0; i < 8 && planted < 5; i++) {
+        const angle = (i / 8) * Math.PI * 2 + radius * 9;
+        const theta = peak.theta + Math.cos(angle) * radius;
+        const phi =
+          peak.phi + (Math.sin(angle) * radius) / Math.max(0.35, Math.sin(peak.theta));
+        const height = heightOffset(theta, phi);
+        if (height <= 5.7 || height > 8.8 || !canPlantTree(theta, phi, path)) continue;
+        candidates.push({
+          theta,
+          phi,
+          kind: 1,
+          scale: 0.85 + hash01(theta, phi, i, 71) * 0.45,
+          snowy: true,
+        });
+        planted++;
+      }
+    }
   }
 
   const trunks = new InstancedMesh(trunkGeo, trunkMat, candidates.length);
@@ -361,9 +475,24 @@ function createTrees(path: RailwayPath): Group {
   const canopy2 = new InstancedMesh(canopyGeo, leafB, candidates.length);
   const boughs = new InstancedMesh(canopyGeo, boughMat, candidates.length);
   const pines = new InstancedMesh(pineGeo, pineMat, candidates.length);
+  const snowCaps = new InstancedMesh(
+    new ConeGeometry(0.2, 0.4, 7),
+    new MeshStandardMaterial({ color: "#edf4f5", roughness: 0.92 }),
+    candidates.length,
+  );
   const gold = new InstancedMesh(canopyGeo, leafC, candidates.length);
   const birchLeaves = new InstancedMesh(canopyGeo, birchLeaf, candidates.length);
-  for (const m of [trunks, birchTrunks, canopy1, canopy2, boughs, pines, gold, birchLeaves]) {
+  for (const m of [
+    trunks,
+    birchTrunks,
+    canopy1,
+    canopy2,
+    boughs,
+    pines,
+    snowCaps,
+    gold,
+    birchLeaves,
+  ]) {
     m.instanceMatrix.setUsage(DynamicDrawUsage);
     m.castShadow = true;
     m.receiveShadow = true;
@@ -392,6 +521,7 @@ function createTrees(path: RailwayPath): Group {
     c1 = 0,
     c2 = 0,
     p = 0,
+    snow = 0,
     g = 0,
     bough = 0,
     bt = 0,
@@ -408,10 +538,15 @@ function createTrees(path: RailwayPath): Group {
       continue;
     }
     if (c.kind === 1) {
-      plantMatrix(pos, up, s * 0.7, s * 0.92, 0, 0, 0);
+      const trunkHeight = 0.95 + hash01(c.theta, c.phi, 3, 23) * 0.35;
+      plantMatrix(pos, up, s * 0.7, s * trunkHeight, 0, 0, 0);
       trunks.setMatrixAt(t++, dummy.matrix);
-      plantMatrix(pos, up, s * 0.9, s * 0.9, 0.5 * s, 0, 0);
+      plantMatrix(pos, up, s * 0.9, s * 0.9, 0.92 * s, 0, 0);
       pines.setMatrixAt(p++, dummy.matrix);
+      if (c.snowy) {
+        plantMatrix(pos, up, s * 0.48, s * 0.42, 1.24 * s, 0, 0);
+        snowCaps.setMatrixAt(snow++, dummy.matrix);
+      }
       continue;
     }
     plantMatrix(pos, up, s, s, 0, 0, 0);
@@ -440,9 +575,10 @@ function createTrees(path: RailwayPath): Group {
   canopy2.count = c2;
   boughs.count = bough;
   pines.count = p;
+  snowCaps.count = snow;
   gold.count = g;
   birchLeaves.count = bl;
-  group.add(trunks, birchTrunks, canopy1, canopy2, boughs, pines, gold, birchLeaves);
+  group.add(trunks, birchTrunks, canopy1, canopy2, boughs, pines, snowCaps, gold, birchLeaves);
 
   group.add(createAncientTree());
   return group;
@@ -540,6 +676,22 @@ function createGrassTufts(path: RailwayPath): InstancedMesh {
 function cottage(w: number, d: number, h: number, roof: string, floors = 1): Group {
   const g = new Group();
   const wallH = h * floors;
+  const foundationMat = new MeshStandardMaterial({ color: "#897d6c", roughness: 0.96 });
+  const foundation = new Mesh(
+    new BoxGeometry(w * 1.08, 0.18, d * 1.08),
+    foundationMat,
+  );
+  foundation.position.y = 0.015;
+  foundation.userData.role = "cottage-foundation";
+  g.add(foundation);
+  for (const x of [-0.42, 0.42]) {
+    for (const z of [-0.4, 0.4]) {
+      const footing = new Mesh(new BoxGeometry(w * 0.11, 0.48, d * 0.12), foundationMat);
+      footing.position.set(w * x, -0.16, d * z);
+      footing.userData.role = "cottage-foundation";
+      g.add(footing);
+    }
+  }
   const wall = new Mesh(
     new BoxGeometry(w, wallH, d),
     new MeshStandardMaterial({ color: "#d8c7a6", roughness: 0.88 }),
@@ -583,7 +735,9 @@ function createVillage(): Group {
   root.name = "villages";
   const posts: Matrix4[] = [];
   const rails: Matrix4[] = [];
-  SETTLEMENTS.forEach((site, index) => plantSettlement(root, site, index, posts, rails));
+  SETTLEMENTS.forEach((site, index) => {
+    if (ACTIVE_VILLAGES.has(index)) plantSettlement(root, site, index, posts, rails);
+  });
   const postMesh = fenceInstances(fencePostGeo, posts, true, "fence-posts");
   const railMesh = fenceInstances(fenceRailGeo, rails, false, "fence-rails");
   if (postMesh) root.add(postMesh);
@@ -611,6 +765,31 @@ const fenceWood = new MeshStandardMaterial({ color: "#6d4c32", roughness: 0.9 })
 const fencePostGeo = new CylinderGeometry(0.05, 0.06, 1, 6);
 const fenceRailGeo = new BoxGeometry(0.05, 0.04, 1);
 const fireWood = new MeshStandardMaterial({ color: "#4a3424", roughness: 0.9 });
+const farmSoil = new MeshStandardMaterial({
+  color: "#75502d",
+  roughness: 0.98,
+  side: DoubleSide,
+});
+const paddyWaterMat = new MeshStandardMaterial({
+  color: "#a99b78",
+  roughness: 0.38,
+  metalness: 0.08,
+  side: DoubleSide,
+});
+const wheatStemMat = new MeshStandardMaterial({ color: "#c29a43", roughness: 0.86 });
+const wheatHeadMat = new MeshStandardMaterial({
+  color: "#f0c65a",
+  roughness: 0.72,
+  emissive: "#805512",
+  emissiveIntensity: 0.14,
+});
+const wheatStemGeo = new CylinderGeometry(0.009, 0.014, 1, 5);
+wheatStemGeo.translate(0, 0.5, 0);
+const wheatHeadGeo = new ConeGeometry(0.038, 0.16, 5);
+const wheatDummy = new Object3D();
+const sheepWool = new MeshStandardMaterial({ color: "#e9e1cf", roughness: 0.96 });
+const sheepFace = new MeshStandardMaterial({ color: "#6c5947", roughness: 0.92 });
+const sheepLeg = new MeshStandardMaterial({ color: "#594938", roughness: 0.92 });
 const fireFlame = new MeshStandardMaterial({
   color: "#ffb15a",
   emissive: "#ff7418",
@@ -627,8 +806,8 @@ const runwayPost = new MeshStandardMaterial({ color: "#3a4148", roughness: 0.5, 
 /** Key light sits at (90, 55, 35); villages on that hemisphere stay unlit. */
 const SUN_DIRECTION = new Vector3(90, 55, 35).normalize();
 const sockMat = new MeshStandardMaterial({ color: "#c4543a", roughness: 0.74 });
-const millCap = new MeshStandardMaterial({ color: "#5c4030", roughness: 0.88 });
-const sailCloth = new MeshStandardMaterial({ color: "#e7dcc4", roughness: 0.8 });
+const millCap = new MeshStandardMaterial({ color: "#3f6570", roughness: 0.76 });
+const sailCloth = new MeshStandardMaterial({ color: "#eadcbf", roughness: 0.82 });
 const lampMat = new MeshStandardMaterial({
   color: "#f3d27a",
   emissive: "#e8b85a",
@@ -701,9 +880,12 @@ function plantSettlement(
       n++;
     }
   }
-  homes.forEach((h, i) => {
+  const retainedHomes = homes
+    .slice(0, 4)
+    .map((house, originalIndex) => ({ house, originalIndex }));
+  retainedHomes.forEach(({ house: h, originalIndex: i }) => {
     const floors = STACKED_HOUSES[index].includes(i) ? 2 : 1;
-    const house = cottage(h.w, h.d, h.h, roofs[i % roofs.length], floors);
+    const house = cottage(h.w * 2.25, h.d * 2.25, h.h * 2.25, roofs[i % roofs.length], floors);
     if (floors > 1) house.name = "double-cottage";
     const { pos, up } = placeOnSurface(site.theta + h.dt, site.phi + h.dp, 0);
     orient(house, pos, up, h.yaw);
@@ -715,7 +897,7 @@ function plantSettlement(
   orient(well, pos, up);
   root.add(well);
 
-  homes.forEach((h, i) => {
+  retainedHomes.forEach(({ house: h, originalIndex: i }) => {
     if (i % 2 === 0) {
       const ribbon = new Mesh(new BoxGeometry(0.12, 0.02, 0.55), pathDirt);
       const placed = placeOnSurface(site.theta + h.dt * 0.45, site.phi + h.dp * 0.45, 0.015);
@@ -731,17 +913,217 @@ function plantSettlement(
   });
 
   addPaddock(site, index, posts, rails);
-  const meadow = outerRadius(site) + 0.052;
+  addVillageGroundLayout(root, site, index);
+  const layout = VILLAGE_LAYOUTS[index];
+  if (layout.sheepSlice !== null) addGrazingSheep(root, site, index, layout.sheepSlice);
+
   const sunlit = facesSun(site.theta, site.phi);
   for (let i = 0; i < site.fires; i++) {
-    const angle = (i + 0.5) * ((Math.PI * 2) / site.fires) + 0.65;
-    const at = ringPoint(site.theta, site.phi, meadow, angle);
+    const angle = ((i + 0.5) / site.fires) * (Math.PI / 3) + 0.12;
+    const radius = 0.072 + (i % 2) * 0.026 + Math.floor(i / 2) * 0.008;
+    const at = ringPoint(site.theta, site.phi, radius, angle);
     addBonfire(root, at.theta, at.phi, index * 1.7 + i * 2.1, sunlit);
   }
 
-  const mill = MILL_ANGLE[index];
-  if (mill !== null) addWindmill(root, site, mill, index);
+  const millYaw = MILL_YAW[index];
+  if (millYaw !== null && layout.windmillSlice !== null) {
+    addWindmill(root, site, millYaw, layout.windmillSlice, index);
+  }
   if (index === LANDING_VILLAGE) addLandingStrip(root, site);
+}
+
+function addVillageGroundLayout(root: Group, site: Settlement, index: number): void {
+  const inner = outerRadius(site);
+  const fence = fenceRadius(site);
+
+  const layout = VILLAGE_LAYOUTS[index];
+  const fieldInner = inner + 0.019;
+  const fieldOuter = fence - 0.019;
+  const angularMargin = 0.03;
+  for (const slice of layout.farms) {
+    const sliceCenter = (slice + 0.5) * VILLAGE_SLICE_WIDTH;
+    const halfWidth = VILLAGE_SLICE_WIDTH / 2 - angularMargin;
+    addSphericalPatch(
+      root,
+      site,
+      fieldInner,
+      fieldOuter,
+      sliceCenter - halfWidth,
+      sliceCenter + halfWidth,
+      farmSoil,
+      "wheat-field",
+      0.09,
+    );
+    for (let channel = 1; channel <= 4; channel++) {
+      const radius = fieldInner + ((fieldOuter - fieldInner) * channel) / 5;
+      const channelHalfWidth = 0.0026;
+      addSphericalPatch(
+        root,
+        site,
+        radius - channelHalfWidth,
+        radius + channelHalfWidth,
+        sliceCenter - halfWidth,
+        sliceCenter + halfWidth,
+        paddyWaterMat,
+        "paddy-water-furrow",
+        0.105,
+      );
+    }
+    addWheatRows(root, site, index, slice, sliceCenter, halfWidth, fieldInner, fieldOuter);
+  }
+}
+
+function addSphericalPatch(
+  root: Group,
+  site: Settlement,
+  innerRadius: number,
+  outer: number,
+  startAngle: number,
+  endAngle: number,
+  material: MeshStandardMaterial,
+  name: string,
+  lift: number,
+): void {
+  const radialSegments = Math.max(2, Math.ceil(((outer - innerRadius) * PLANET.radius) / 0.35));
+  const angularSegments = Math.max(
+    3,
+    Math.ceil(((outer * (endAngle - startAngle)) * PLANET.radius) / 0.35),
+  );
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  for (let row = 0; row <= radialSegments; row++) {
+    const radius = innerRadius + ((outer - innerRadius) * row) / radialSegments;
+    for (let column = 0; column <= angularSegments; column++) {
+      const angle = startAngle + ((endAngle - startAngle) * column) / angularSegments;
+      const surface = placeOnSurface(
+        site.theta + Math.cos(angle) * radius,
+        site.phi + Math.sin(angle) * radius,
+        lift,
+      );
+      vertices.push(surface.pos.x, surface.pos.y, surface.pos.z);
+    }
+  }
+  for (let row = 0; row < radialSegments; row++) {
+    for (let column = 0; column < angularSegments; column++) {
+      const a = row * (angularSegments + 1) + column;
+      const b = a + angularSegments + 1;
+      indices.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const mesh = new Mesh(geometry, material);
+  mesh.name = name;
+  mesh.receiveShadow = true;
+  mesh.userData.seatToPlanetSurface = true;
+  mesh.userData.surfaceOffset = lift;
+  root.add(mesh);
+}
+
+function addWheatRows(
+  root: Group,
+  site: Settlement,
+  villageIndex: number,
+  slice: number,
+  sliceCenter: number,
+  halfWidth: number,
+  innerRadius: number,
+  outer: number,
+): void {
+  const radialRows = 17;
+  const plantsPerRow = 22;
+  const plantCount = radialRows * plantsPerRow;
+  const stems = new InstancedMesh(wheatStemGeo, wheatStemMat, plantCount);
+  const heads = new InstancedMesh(wheatHeadGeo, wheatHeadMat, plantCount);
+  stems.name = "wheat-stalks";
+  heads.name = "wheat-heads";
+  stems.castShadow = true;
+  heads.castShadow = true;
+  let plant = 0;
+  for (let row = 0; row < radialRows; row++) {
+    const radius = innerRadius + ((outer - innerRadius) * (row + 0.5)) / radialRows;
+    for (let column = 0; column < plantsPerRow; column++) {
+      const across = (column + 0.5) / plantsPerRow - 0.5;
+      const jitter = (hash01(villageIndex, slice, row, column) - 0.5) * 0.035;
+      const angle = sliceCenter + across * 2 * halfWidth + jitter;
+      const ground = placeOnSurface(
+        site.theta + Math.cos(angle) * radius,
+        site.phi + Math.sin(angle) * radius,
+        0.09,
+      );
+      const height = 0.38 + hash01(villageIndex, slice, row, column + 29) * 0.24;
+      wheatDummy.position.copy(ground.pos);
+      wheatDummy.quaternion.setFromUnitVectors(treeUp, ground.up);
+      wheatDummy.scale.set(1, height, 1);
+      wheatDummy.updateMatrix();
+      stems.setMatrixAt(plant, wheatDummy.matrix);
+
+      wheatDummy.position.copy(ground.pos).addScaledVector(ground.up, height * 0.88);
+      wheatDummy.scale.setScalar(1.05 + hash01(villageIndex, slice, row, column + 47) * 0.5);
+      wheatDummy.updateMatrix();
+      heads.setMatrixAt(plant, wheatDummy.matrix);
+      plant++;
+    }
+  }
+  stems.instanceMatrix.needsUpdate = true;
+  heads.instanceMatrix.needsUpdate = true;
+  root.add(stems, heads);
+}
+
+function addGrazingSheep(root: Group, site: Settlement, index: number, slice: number): void {
+  const sliceCenter = (slice + 0.5) * VILLAGE_SLICE_WIDTH;
+  const herdSize = index === 1 ? 5 : 4;
+  for (let i = 0; i < herdSize; i++) {
+    const sheep = new Group();
+    sheep.name = "grazing-sheep";
+    const body = new Mesh(new SphereGeometry(0.19, 8, 6), sheepWool);
+    body.scale.set(1.25, 0.86, 0.88);
+    body.position.y = 0.28;
+    const head = new Mesh(new SphereGeometry(0.095, 7, 6), sheepFace);
+    head.position.set(0, 0.34, 0.22);
+    const muzzle = new Mesh(new SphereGeometry(0.055, 6, 5), sheepWool);
+    muzzle.position.set(0, 0.31, 0.29);
+    sheep.add(body, head, muzzle);
+    for (const side of [-1, 1]) {
+      const ear = new Mesh(new BoxGeometry(0.035, 0.035, 0.09), sheepFace);
+      ear.position.set(side * 0.085, 0.39, 0.2);
+      sheep.add(ear);
+    }
+
+    const legs: Object3D[] = [];
+    for (const x of [-0.13, 0.13]) {
+      for (const z of [-0.11, 0.13]) {
+        const leg = new Mesh(new CylinderGeometry(0.025, 0.022, 0.2, 5), sheepLeg);
+        leg.position.set(x, 0.11, z);
+        leg.castShadow = true;
+        legs.push(leg);
+        sheep.add(leg);
+      }
+    }
+    body.castShadow = true;
+    head.castShadow = true;
+    const lane = (i - (herdSize - 1) / 2) * 0.095;
+    const angle = sliceCenter + lane;
+    const radius = 0.095 + (i % 2) * 0.012;
+    const theta = site.theta + Math.cos(angle) * radius;
+    const phi = site.phi + Math.sin(angle) * radius;
+    const placed = placeOnSurface(theta, phi, 0);
+    sheep.scale.setScalar(0.65);
+    orient(sheep, placed.pos, placed.up);
+    root.add(sheep);
+    life.sheep.push({
+      obj: sheep,
+      villageTheta: site.theta,
+      villagePhi: site.phi,
+      sliceCenter,
+      lane,
+      phase: index * 4.7 + i * 1.9,
+      legs,
+    });
+  }
 }
 
 function addPaddock(site: Settlement, index: number, posts: Matrix4[], rails: Matrix4[]): void {
@@ -846,15 +1228,42 @@ function addBonfire(root: Group, theta: number, phi: number, phase: number, sunl
   root.add(g);
 }
 
-function addWindmill(root: Group, site: Settlement, angle: number, phase: number): void {
-  const at = ringPoint(site.theta, site.phi, outerRadius(site) + 0.03, angle);
+function addWindmill(
+  root: Group,
+  site: Settlement,
+  yaw: number,
+  slice: number,
+  phase: number,
+): void {
+  const sliceCenter = (slice + 0.5) * VILLAGE_SLICE_WIDTH;
+  const radius = (outerRadius(site) + fenceRadius(site)) / 2;
+  const at = ringPoint(site.theta, site.phi, radius, sliceCenter);
   const g = new Group();
   g.name = "windmill";
+  g.scale.setScalar(3.375);
   const towerH = 1.22;
-  const tower = new Mesh(new CylinderGeometry(0.08, 0.14, towerH, 6), fenceWood);
+  const towerMat = new MeshStandardMaterial({ color: "#c7a77c", roughness: 0.92 });
+  const tower = new Mesh(new CylinderGeometry(0.08, 0.14, towerH, 6), towerMat);
   tower.position.y = towerH / 2;
   tower.castShadow = true;
   tower.receiveShadow = true;
+  const windowGlass = new MeshStandardMaterial({
+    color: "#527d87",
+    emissive: "#315966",
+    emissiveIntensity: 0.35,
+    roughness: 0.3,
+    metalness: 0.12,
+  });
+  const windowY = towerH * 0.73;
+  const windowRadius = 0.035;
+  const window = new Mesh(new CircleGeometry(windowRadius, 12), windowGlass);
+  window.material.side = DoubleSide;
+  window.position.set(0, windowY, 0.091);
+  const windowTrim = new Mesh(
+    new TorusGeometry(windowRadius * 1.16, 0.008, 5, 12),
+    millCap,
+  );
+  windowTrim.position.set(0, windowY, 0.097);
   const cap = new Mesh(new ConeGeometry(0.16, 0.22, 6), millCap);
   cap.position.y = towerH + 0.06;
   cap.castShadow = true;
@@ -871,16 +1280,32 @@ function addWindmill(root: Group, site: Settlement, angle: number, phase: number
   for (let i = 0; i < 4; i++) {
     const arm = new Group();
     arm.rotation.z = (i * Math.PI) / 2;
-    const blade = new Mesh(new BoxGeometry(0.07, 0.46, 0.016), sailCloth);
-    blade.position.y = 0.3;
+    const bladeShape = new Shape();
+    bladeShape.moveTo(-0.045, 0.075);
+    bladeShape.lineTo(0.045, 0.075);
+    bladeShape.quadraticCurveTo(0.09, 0.31, 0.145, 0.48);
+    bladeShape.quadraticCurveTo(0.015, 0.54, -0.13, 0.49);
+    bladeShape.quadraticCurveTo(-0.075, 0.29, -0.045, 0.075);
+    const blade = new Mesh(
+      new ExtrudeGeometry(bladeShape, { depth: 0.014, bevelEnabled: false, curveSegments: 4 }),
+      sailCloth,
+    );
     blade.castShadow = true;
     arm.add(blade);
+    const spar = new Mesh(new BoxGeometry(0.018, 0.44, 0.022), millCap);
+    spar.position.set(0, 0.29, 0.02);
+    arm.add(spar);
     sails.add(arm);
   }
-  g.add(tower, cap, axle, sails);
+  g.add(tower, window, windowTrim, cap, axle, sails);
   const placed = placeOnSurface(at.theta, at.phi, 0);
   const center = placeOnSurface(site.theta, site.phi, 0);
-  orient(g, placed.pos, placed.up, yawToward(placed.up, placed.pos.clone().sub(center.pos)));
+  orient(
+    g,
+    placed.pos,
+    placed.up,
+    yawToward(placed.up, placed.pos.clone().sub(center.pos)) + yaw,
+  );
   root.add(g);
 }
 
@@ -933,11 +1358,13 @@ function addLandingStrip(root: Group, site: Settlement): void {
 
   const terminalAt = offsetAlong(mid, tangent, TERMINAL_ALONG, TERMINAL_SIDE);
   group.add(buildTerminal(terminalAt, site));
+  const towerAt = offsetAlong(terminalAt, tangent, TOWER_ALONG);
+  group.add(buildControlTower(towerAt, site));
   root.add(group);
 }
 
 function paintRunway(slab: Mesh): void {
-  const dashCount = 5;
+  const dashCount = Math.round(STRIP_LENGTH * (5 / 1.85));
   const span = STRIP_LENGTH * 0.62;
   for (let i = 0; i < dashCount; i++) {
     const dash = new Mesh(new BoxGeometry(0.028, 0.012, 0.1), runwayPaint);
@@ -945,13 +1372,14 @@ function paintRunway(slab: Mesh): void {
     slab.add(dash);
   }
   for (const z of [-(STRIP_LENGTH / 2 - 0.1), STRIP_LENGTH / 2 - 0.1]) {
-    for (let i = -3; i <= 2; i++) {
+    const barCount = Math.max(6, Math.round((STRIP_WIDTH * 0.7) / 0.088));
+    for (let i = 0; i < barCount; i++) {
       const bar = new Mesh(new BoxGeometry(0.052, 0.012, 0.028), runwayPaint);
-      bar.position.set((i + 0.5) * 0.088, 0.031, z);
+      bar.position.set((i - (barCount - 1) / 2) * 0.088, 0.031, z);
       slab.add(bar);
     }
   }
-  const edgeCount = 4;
+  const edgeCount = Math.round(STRIP_LENGTH * (4 / 1.85));
   const edgeSpan = STRIP_LENGTH * 0.58;
   for (let i = 0; i < edgeCount; i++) {
     const z = -edgeSpan / 2 + (i * edgeSpan) / (edgeCount - 1);
@@ -965,7 +1393,7 @@ function paintRunway(slab: Mesh): void {
 
 function addRunwayLights(slab: Mesh): void {
   const edgeX = STRIP_WIDTH / 2 - 0.04;
-  const count = 4;
+  const count = Math.round(STRIP_LENGTH * (4 / 1.85));
   const span = STRIP_LENGTH * 0.72;
   for (let i = 0; i < count; i++) {
     const z = -span / 2 + (i * span) / (count - 1);
@@ -1044,6 +1472,45 @@ function buildTerminal(at: Ang, site: Settlement): Group {
   return g;
 }
 
+function buildControlTower(at: Ang, site: Settlement): Group {
+  const g = new Group();
+  g.name = "airstrip-control-tower";
+  g.scale.y = 2;
+  const plaster = new MeshStandardMaterial({ color: "#e7e4dc", roughness: 0.55, metalness: 0.03 });
+  const trim = new MeshStandardMaterial({ color: "#3d4650", roughness: 0.48, metalness: 0.16 });
+  const roofMat = new MeshStandardMaterial({ color: "#8b939a", roughness: 0.4, metalness: 0.22 });
+  const glass = new MeshStandardMaterial({
+    color: "#b5d0d8",
+    emissive: "#7eacb8",
+    emissiveIntensity: 0.28,
+    roughness: 0.07,
+    metalness: 0.4,
+  });
+  const base = new Mesh(new BoxGeometry(0.34, 0.48, 0.32), trim);
+  base.position.y = 0.24;
+  const cab = new Mesh(new BoxGeometry(0.3, 0.18, 0.3), plaster);
+  cab.position.y = 0.57;
+  const windows = new Mesh(new BoxGeometry(0.26, 0.08, 0.012), glass);
+  windows.position.set(0, 0.59, 0.156);
+  const roof = new Mesh(new BoxGeometry(0.38, 0.04, 0.36), roofMat);
+  roof.position.y = 0.68;
+  const pole = new Mesh(new CylinderGeometry(0.01, 0.014, 0.24, 5), trim);
+  pole.position.set(0, 0.82, 0);
+  const flag = new Mesh(new PlaneGeometry(0.18, 0.1, 8, 4), createBlueFlagMaterial(0.18, 0.055));
+  flag.position.set(0.09, 0.88, 0);
+  flag.name = "airstrip-flag";
+  flag.castShadow = false;
+  for (const part of [base, cab, windows, roof, pole, flag]) {
+    part.castShadow = part !== flag;
+    part.receiveShadow = true;
+    g.add(part);
+  }
+  const placed = placeOnSurface(at.theta, at.phi, 0);
+  const village = placeOnSurface(site.theta, site.phi, 0);
+  orient(g, placed.pos, placed.up, yawToward(placed.up, village.pos.clone().sub(placed.pos)));
+  return g;
+}
+
 function createLandmarks(): Group {
   const g = new Group();
   g.add(createCastle());
@@ -1054,7 +1521,9 @@ function createLandmarks(): Group {
 function createCastle(): Group {
   const g = new Group();
   g.name = "castle";
+  g.scale.setScalar(1.25);
   const stone = new MeshStandardMaterial({ color: "#b3a89a", roughness: 0.88 });
+  const masonry = new MeshStandardMaterial({ color: "#928579", roughness: 0.94 });
   const dark = new MeshStandardMaterial({ color: "#6f675e", roughness: 0.93 });
   const roof = new MeshStandardMaterial({ color: "#6e342c", roughness: 0.74 });
   const wood = new MeshStandardMaterial({ color: "#4a3424", roughness: 0.9 });
@@ -1064,27 +1533,10 @@ function createCastle(): Group {
     emissiveIntensity: 1.5,
     roughness: 0.4,
   });
-  const flagMat = new MeshStandardMaterial({
-    color: "#2f74e0",
-    emissive: "#1d4e9e",
-    emissiveIntensity: 0.2,
-    roughness: 0.5,
-    side: DoubleSide,
-  });
-  flagMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = sceneryTime;
-    shader.vertexShader =
-      "uniform float uTime;\n" +
-      shader.vertexShader.replace(
-        "#include <begin_vertex>",
-        `#include <begin_vertex>
-         float along = smoothstep(-0.13, 0.13, position.x);
-         transformed.z += sin(uTime * 3.4 + along * 9.0) * along * 0.09;
-         transformed.y += sin(uTime * 2.5 + along * 6.5) * along * 0.04;`,
-      );
-  };
+  const flagMat = createBlueFlagMaterial(0.26, 0.09);
 
   const stoneBoxes: Matrix4[] = [];
+  const masonryBoxes: Matrix4[] = [];
   const placeStoneBox = (geo: BoxGeometry, x: number, y: number, z: number, yaw = 0): void => {
     dummy.position.set(x, y, z);
     dummy.rotation.set(0, yaw, 0);
@@ -1115,7 +1567,7 @@ function createCastle(): Group {
   const wallH = 0.82;
   const wallT = 0.16;
   const gate = 0.52;
-  add(new CylinderGeometry(1.72, 1.86, 0.14, 12), dark, 0, 0.02, 0);
+  add(new CylinderGeometry(1.78, 1.98, 0.52, 12), dark, 0, -0.12, 0);
 
   placeStoneBox(new BoxGeometry(span, wallH, wallT), 0, wallH / 2, -span / 2);
   placeStoneBox(new BoxGeometry(wallT, wallH, span), -span / 2, wallH / 2, 0);
@@ -1123,6 +1575,30 @@ function createCastle(): Group {
   const side = (span - gate) / 2;
   placeStoneBox(new BoxGeometry(side, wallH, wallT), -(gate + side) / 2, wallH / 2, span / 2);
   placeStoneBox(new BoxGeometry(side, wallH, wallT), (gate + side) / 2, wallH / 2, span / 2);
+
+  const placeMasonry = (x: number, y: number, z: number, yaw = 0): void => {
+    dummy.position.set(x, y, z);
+    dummy.rotation.set(0, yaw, 0);
+    dummy.scale.set(0.27, 0.12, 0.018);
+    dummy.updateMatrix();
+    masonryBoxes.push(dummy.matrix.clone());
+  };
+  for (let course = 0; course < 5; course++) {
+    const y = 0.1 + course * 0.16;
+    const offset = course % 2 ? 0.14 : 0;
+    for (let brick = 0; brick < 10; brick++) {
+      const x = -1.25 + brick * 0.27 + offset;
+      if (x > 1.28) continue;
+      placeMasonry(x, y, -span / 2 - 0.09);
+      if (Math.abs(x) > gate / 2 + 0.14) placeMasonry(x, y, span / 2 + 0.09);
+    }
+    for (let brick = 0; brick < 10; brick++) {
+      const z = -1.25 + brick * 0.27 + offset;
+      if (z > 1.28) continue;
+      placeMasonry(-span / 2 - 0.09, y, z, Math.PI / 2);
+      placeMasonry(span / 2 + 0.09, y, z, Math.PI / 2);
+    }
+  }
 
   for (let i = 0; i < 8; i++) {
     const x = -span / 2 + 0.24 + i * 0.3;
@@ -1226,6 +1702,15 @@ function createCastle(): Group {
     blocks.instanceMatrix.needsUpdate = true;
     g.add(blocks);
   }
+  if (masonryBoxes.length > 0) {
+    const blocks = new InstancedMesh(new BoxGeometry(1, 1, 1), masonry, masonryBoxes.length);
+    blocks.name = "castle-brickwork";
+    blocks.castShadow = true;
+    blocks.receiveShadow = true;
+    masonryBoxes.forEach((matrix, i) => blocks.setMatrixAt(i, matrix));
+    blocks.instanceMatrix.needsUpdate = true;
+    g.add(blocks);
+  }
   dummy.position.set(0, 0, 0);
   dummy.rotation.set(0, 0, 0);
   dummy.scale.set(1, 1, 1);
@@ -1233,6 +1718,29 @@ function createCastle(): Group {
   const { pos, up } = placeOnSurface(SITES.castle.theta, SITES.castle.phi, 0);
   orient(g, pos, up, 0.8);
   return g;
+}
+
+function createBlueFlagMaterial(width: number, wave: number): MeshStandardMaterial {
+  const flagMat = new MeshStandardMaterial({
+    color: "#2f74e0",
+    emissive: "#1d4e9e",
+    emissiveIntensity: 0.2,
+    roughness: 0.5,
+    side: DoubleSide,
+  });
+  flagMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = sceneryTime;
+    shader.vertexShader =
+      "uniform float uTime;\n" +
+      shader.vertexShader.replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+         float along = smoothstep(-${width / 2}, ${width / 2}, position.x);
+         transformed.z += sin(uTime * 3.4 + along * 9.0) * along * ${wave};
+         transformed.y += sin(uTime * 2.5 + along * 6.5) * along * ${wave * 0.44};`,
+      );
+  };
+  return flagMat;
 }
 
 function createShrine(): Group {
@@ -1300,6 +1808,25 @@ export function updateLife(root: Group, t: number): void {
     node.obj.rotation.y = 0;
     node.obj.rotation.z = t * 0.33 + node.phase;
   }
+  for (const sheep of actors.sheep) {
+    const phase = sheep.phase;
+    const angle = sheep.sliceCenter + sheep.lane + Math.sin(t * 0.18 + phase) * 0.14;
+    const radius = 0.1 + Math.sin(t * 0.13 + phase) * 0.009;
+    const theta = sheep.villageTheta + Math.cos(angle) * radius;
+    const phi =
+      sheep.villagePhi + (Math.sin(angle) * radius) / Math.max(0.35, Math.sin(sheep.villageTheta));
+    const placed = placeOnSurface(theta, phi, 0);
+    const next = placeOnSurface(
+      theta + Math.cos(angle + 0.04) * 0.001,
+      phi + Math.sin(angle + 0.04) * 0.001,
+      0,
+    );
+    orient(sheep.obj, placed.pos, placed.up, yawToward(placed.up, next.pos.clone().sub(placed.pos)));
+    const gait = Math.sin(t * 2.4 + phase) * 0.18;
+    sheep.legs.forEach((leg, i) => {
+      leg.rotation.x = gait * (i % 2 === 0 ? 1 : -1);
+    });
+  }
 }
 
 function driftSmoke(wisps: Object3D, t: number): void {
@@ -1347,6 +1874,10 @@ export function seatOnGround(root: Group, surface: PlanetSurface): void {
       seatInstances(obj as InstancedMesh, surface);
       return;
     }
+    if ((obj as Mesh).isMesh && obj.userData.seatToPlanetSurface) {
+      seatSurfaceGeometry(obj as Mesh, surface);
+      return;
+    }
     const parentFar = !!obj.parent && obj.parent.position.lengthSq() > 4;
     if (!parentFar && obj.position.lengthSq() > 4) reseat(obj, surface);
     for (const child of obj.children) visit(child);
@@ -1355,18 +1886,39 @@ export function seatOnGround(root: Group, surface: PlanetSurface): void {
   bakeCottages(root);
 }
 
+function seatSurfaceGeometry(mesh: Mesh, surface: PlanetSurface): void {
+  const geometry = mesh.geometry;
+  const position = geometry.attributes.position;
+  const point = new Vector3();
+  const lift = mesh.userData.surfaceOffset as number;
+  for (let i = 0; i < position.count; i++) {
+    point.fromBufferAttribute(position, i);
+    const at = cartToSph(point);
+    const radius = surface.radius(at.theta, at.phi);
+    if (radius > 0) {
+      point.setLength(radius + lift);
+      position.setXYZ(i, point.x, point.y, point.z);
+    }
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+}
+
 const cottageScale = new Matrix4();
 const cottageWorld = new Matrix4();
 
 function bakeCottages(root: Group): void {
   root.updateMatrixWorld(true);
+  const foundations: Mesh[] = [];
   const walls: Mesh[] = [];
   const roofs: Mesh[] = [];
   const windows: Mesh[] = [];
   root.traverse((obj) => {
     const mesh = obj as Mesh;
     if (!mesh.isMesh) return;
-    if (mesh.userData.role === "cottage-wall") walls.push(mesh);
+    if (mesh.userData.role === "cottage-foundation") foundations.push(mesh);
+    else if (mesh.userData.role === "cottage-wall") walls.push(mesh);
     else if (mesh.userData.role === "cottage-roof") roofs.push(mesh);
     else if (mesh.userData.role === "cottage-window") windows.push(mesh);
   });
@@ -1377,9 +1929,20 @@ function bakeCottages(root: Group): void {
     emissive: "#f0c35c",
     emissiveIntensity: 1.1,
   });
+  const foundationMesh = bakeScaled(
+    foundations,
+    new BoxGeometry(1, 1, 1),
+    new MeshStandardMaterial({ color: "#897d6c", roughness: 0.96 }),
+    true,
+    false,
+  );
   const wallMesh = bakeScaled(walls, new BoxGeometry(1, 1, 1), wallMat, true, false);
   const roofMesh = bakeScaled(roofs, new ConeGeometry(1, 1, 4), roofMat, true, true);
   const windowMesh = bakeScaled(windows, new BoxGeometry(1, 1, 1), pane, false, false);
+  if (foundationMesh) {
+    foundationMesh.name = "cottage-foundations";
+    root.add(foundationMesh);
+  }
   if (wallMesh) {
     wallMesh.name = "cottage-walls";
     root.add(wallMesh);
@@ -1461,16 +2024,42 @@ export function createFireflies(): Group {
   g.name = "fireflies";
   const geo = new SphereGeometry(0.025, 6, 6);
   const mat = new MeshStandardMaterial({
-    color: "#d5f08a",
-    emissive: "#c6ee6a",
-    emissiveIntensity: 2,
+    color: "#f5df8a",
+    emissive: "#ffe071",
+    emissiveIntensity: 0.85,
   });
-  for (let i = 0; i < 24; i++) {
-    const p = new Mesh(geo, mat);
-    p.userData.theta = SITES.ancientTree.theta + (hash01(i, 1, 2, 60) - 0.5) * 0.2;
-    p.userData.phi = SITES.ancientTree.phi + (hash01(i, 3, 4, 61) - 0.5) * 0.25;
-    p.userData.phase = hash01(i, 5, 6, 62) * 10;
-    g.add(p);
+  const haloGeo = new SphereGeometry(0.025, 8, 8);
+  const haloMat = new MeshBasicMaterial({
+    color: "#f4dc83",
+    transparent: true,
+    opacity: 0.075,
+    depthWrite: false,
+  });
+  const swarms = [...GROVES]
+    .sort((a, b) => b.count / (b.reach * b.reach) - a.count / (a.reach * a.reach))
+    .slice(0, 6);
+  for (let swarm = 0; swarm < swarms.length; swarm++) {
+    const center = swarms[swarm];
+    for (let i = 0; i < 24; i++) {
+      const p = new Mesh(geo, mat);
+      p.userData.theta =
+        center.theta + (hash01(i, swarm, 1, 60) - 0.5) * center.reach * 0.8;
+      p.userData.phi =
+        center.phi +
+        ((hash01(i, swarm, 3, 61) - 0.5) * center.reach * 0.8) /
+          Math.max(0.35, Math.sin(center.theta));
+      p.userData.phase = hash01(i, swarm, 5, 62) * 10;
+      const halo = new Mesh(haloGeo, haloMat);
+      halo.scale.setScalar(7);
+      p.add(halo);
+      g.add(p);
+    }
+    const glow = new PointLight("#f4d97a", 0.28, 11, 2);
+    glow.userData.glowLight = true;
+    glow.userData.theta = center.theta;
+    glow.userData.phi = center.phi;
+    glow.userData.phase = hash01(swarm, 29, 7, 63) * Math.PI * 2;
+    g.add(glow);
   }
   return g;
 }
@@ -1478,10 +2067,18 @@ export function createFireflies(): Group {
 export function updateFireflies(group: Group, t: number): void {
   for (const child of group.children) {
     const u = child.userData;
-    const theta = u.theta + Math.sin(t * 0.6 + u.phase) * 0.03;
-    const phi = u.phi + Math.cos(t * 0.5 + u.phase) * 0.03;
+    const theta = u.glowLight
+      ? u.theta + Math.sin(t * 0.19 + u.phase) * 0.045
+      : u.theta + Math.sin(t * 0.6 + u.phase) * 0.012;
+    const phi = u.glowLight
+      ? u.phi + Math.cos(t * 0.16 + u.phase) * 0.045
+      : u.phi + Math.cos(t * 0.5 + u.phase) * 0.012;
     const r = surfaceRadius(theta, phi) + 0.4 + Math.sin(t * 1.4 + u.phase) * 0.25;
     child.position.copy(sphToCart(r, theta, phi));
+    if (u.glowLight) {
+      (child as PointLight).intensity = 0.22 + Math.sin(t * 0.4 + u.phase) * 0.04;
+      continue;
+    }
     const vis = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3 + u.phase));
     (child as Mesh).scale.setScalar(vis);
   }

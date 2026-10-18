@@ -16,12 +16,15 @@ import { heightOffset } from "./height";
 const waterVert = `
 uniform float uTime;
 varying vec3 vWorld;
+varying float vDepth;
+attribute float aDepth;
 void main() {
   vec3 p = position;
   float wave = sin(position.x * 0.35 + uTime * 1.3) * 0.04;
   p += normalize(position) * wave;
   vec4 world = modelMatrix * vec4(p, 1.0);
   vWorld = world.xyz;
+  vDepth = aDepth;
   gl_Position = projectionMatrix * viewMatrix * world;
 }
 `;
@@ -30,11 +33,13 @@ const waterFrag = `
 uniform vec3 uColor;
 uniform vec3 uDeep;
 varying vec3 vWorld;
+varying float vDepth;
 void main() {
   vec3 n = normalize(vWorld);
   float fres = pow(1.0 - abs(dot(n, normalize(cameraPosition - vWorld))), 2.0);
-  vec3 col = mix(uDeep, uColor, 0.62 + fres * 0.38);
-  gl_FragColor = vec4(col, 0.8);
+  vec3 col = mix(uColor, uDeep, smoothstep(0.05, 0.95, vDepth) * 0.9);
+  col = mix(col, uColor, fres * 0.28);
+  gl_FragColor = vec4(col, 0.7);
 }
 `;
 
@@ -46,9 +51,9 @@ export const waterTime = { value: 0 };
 export function createWater(): Group {
   const group = new Group();
   group.name = "water";
-  group.add(lake(SITES.lake.theta, SITES.lake.phi, MAIN_LAKE_ANGULAR, "#2f6d73", 10, 42, 0.16));
-  group.add(lake(SITES.lake2.theta, SITES.lake2.phi, 0.125, "#2a6270"));
-  group.add(lake(SITES.pool.theta, SITES.pool.phi, 0.055, "#3a7a78"));
+  group.add(lake(SITES.lake.theta, SITES.lake.phi, MAIN_LAKE_ANGULAR, "#397e91", 10, 42, 0.16));
+  group.add(lake(SITES.lake2.theta, SITES.lake2.phi, 0.125, "#39788c"));
+  group.add(lake(SITES.pool.theta, SITES.pool.phi, 0.055, "#438b87"));
   return group;
 }
 
@@ -75,7 +80,7 @@ function lake(
     uniforms: {
       uTime: waterTime,
       uColor: { value: new Color(hex) },
-      uDeep: { value: new Color("#1f6d78") },
+      uDeep: { value: new Color("#073b70") },
     },
     vertexShader: waterVert,
     fragmentShader: waterFrag,
@@ -113,6 +118,7 @@ function sphericalCap(
 ): BufferGeometry {
   const geo = new BufferGeometry();
   const positions: number[] = [];
+  const depths: number[] = [];
   const indices: number[] = [];
   const center = sphToCart(1, theta, phi);
   const east = new Vector3()
@@ -121,7 +127,7 @@ function sphericalCap(
   const north = new Vector3().crossVectors(center, east).normalize();
   const tmp = new Vector3();
 
-  const push = (sinA: number, angle: number) => {
+  const push = (sinA: number, angle: number, depth: number) => {
     tmp
       .copy(center)
       .addScaledVector(east, Math.cos(angle) * sinA)
@@ -129,12 +135,15 @@ function sphericalCap(
       .normalize()
       .multiplyScalar(radius);
     positions.push(tmp.x, tmp.y, tmp.z);
+    depths.push(depth);
   };
 
-  push(0, 0);
+  push(0, 0, 1);
   for (let r = 1; r <= rings; r++) {
     const sinA = Math.sin(angular * (r / rings));
-    for (let s = 0; s < segs; s++) push(sinA, (s / segs) * Math.PI * 2);
+    for (let s = 0; s < segs; s++) {
+      push(sinA, (s / segs) * Math.PI * 2, 1 - r / rings);
+    }
   }
   for (let s = 0; s < segs; s++) {
     const a = 1 + s;
@@ -151,6 +160,7 @@ function sphericalCap(
     }
   }
   geo.setAttribute("position", new BufferAttribute(new Float32Array(positions), 3));
+  geo.setAttribute("aDepth", new BufferAttribute(new Float32Array(depths), 1));
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;

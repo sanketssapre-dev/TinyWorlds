@@ -6,9 +6,10 @@ import {
   Scene,
   WebGLRenderer,
 } from "three";
-import { CAMERA } from "./config";
+import { CAMERA, DEBUG } from "./config";
 import { createCamera, notifyOrbit, snapCamera, updateCamera } from "./camera/controller";
 import { createFlight, updateFlight } from "./flight/biplane";
+import { createFlightPathMarkers } from "./debug/flightPathMarkers";
 import { createPlanetMesh } from "./planet/mesh";
 import {
   createFireflies,
@@ -63,7 +64,14 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   const env = createEnvironment(scene);
   scene.add(env);
 
-  const path = createFlightPath();
+  const selectedVariant = Math.floor(Math.random() * 3);
+  const pathSeed = Math.floor(Math.random() * 0x7fffffff) + 1;
+  const debugPaths = DEBUG.enabled
+    ? [0, 1, 2].map((variant) => createFlightPath(768, pathSeed, variant))
+    : undefined;
+  const path = debugPaths
+    ? debugPaths[selectedVariant]
+    : createFlightPath(768, pathSeed, selectedVariant);
   const planet = createPlanetMesh();
   const surface = indexPlanetSurface(planet.geometry);
   const scenery = createScenery(path);
@@ -74,6 +82,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   const flight = createFlight();
 
   scene.add(planet, scenery, water, boats, fireflies, flight.craft);
+  if (debugPaths) scene.add(createFlightPathMarkers(debugPaths));
   freezeStaticObjects(scene);
 
   const hud = createHud(hudMount, cameraRig);

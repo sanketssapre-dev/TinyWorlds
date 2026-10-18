@@ -47,28 +47,18 @@ const FLIGHT_ALONG_FRACTION = 0.08;
 const FLIGHT_LATERAL_WOBBLE = 0.15;
 const FLIGHT_TEST_SEED = 1;
 
-function designKeys(): Waypoint[] {
-  return [
-    { phi: 0.0, theta: 1.23 },
-    { phi: 0.22, theta: 1.23 },
-    { phi: 0.55, theta: 1.3 },
-    { phi: 0.86, theta: 1.34 },
-    { phi: 1.18, theta: 1.42 },
-    { phi: 1.55, theta: 1.28 },
-    { phi: 1.95, theta: 1.05 },
-    { phi: 2.35, theta: 0.88 },
-    { phi: 2.62, theta: 1.16 },
-    { phi: 2.95, theta: 1.78 },
-    { phi: 3.28, theta: 1.46 },
-    { phi: 3.55, theta: 1.26 },
-    { phi: 3.9, theta: 1.08 },
-    { phi: 4.08, theta: 1.66 },
-    { phi: 4.42, theta: 1.4 },
-    { phi: 4.85, theta: 1.2 },
-    { phi: 5.18, theta: 1.12 },
-    { phi: 5.58, theta: 1.06 },
-    { phi: 5.95, theta: 1.16 },
+function designKeys(variant = 0): Waypoint[] {
+  const phis = [
+    0.0, 0.22, 0.55, 0.86, 1.18, 1.55, 1.95, 2.35, 2.62, 2.95, 3.28, 3.55, 3.9,
+    4.08, 4.42, 4.85, 5.18, 5.58, 5.95,
   ];
+  const thetaByVariant = [
+    [1.23, 1.23, 1.3, 1.34, 1.42, 1.28, 1.05, 0.88, 1.16, 1.78, 1.46, 1.26, 1.08, 1.66, 1.4, 1.2, 1.12, 1.06, 1.16],
+    [2.3, 2.38, 2.48, 2.52, 2.38, 2.18, 1.98, 1.82, 1.96, 2.28, 2.52, 2.42, 2.2, 1.88, 1.72, 1.84, 2.04, 2.22, 2.3],
+    [0.68, 0.82, 1.12, 1.58, 2.02, 2.34, 2.52, 2.42, 2.08, 1.62, 1.18, 0.84, 0.62, 0.76, 1.16, 1.72, 2.16, 2.38, 1.76],
+  ];
+  const thetas = thetaByVariant[((variant % thetaByVariant.length) + thetaByVariant.length) % thetaByVariant.length];
+  return phis.map((phi, index) => ({ phi, theta: thetas[index] }));
 }
 
 function thetaAt(keys: Waypoint[], phi: number): number {
@@ -449,8 +439,13 @@ function restrainFlightWaypoints(original: Waypoint[], shifted: Waypoint[]): Way
 }
 
 /** Closed cruise above the hills. Waypoints shift once when the path is built. */
-export function createFlightPath(sampleCount = 768, seed?: number): RailwayPath {
-  const keys = varyFlightWaypoints(designKeys(), flightPathSeed(seed));
+export function createFlightPath(
+  sampleCount = 768,
+  seed?: number,
+  variant = 0,
+): RailwayPath {
+  const selectedVariant = ((Math.floor(variant) % 3) + 3) % 3;
+  const keys = varyFlightWaypoints(designKeys(selectedVariant), flightPathSeed(seed));
   const controlPoints = keys.map((wp) =>
     sphToCart(PLANET.radius + FLIGHT.cruise, wp.theta, wp.phi),
   );

@@ -62,7 +62,7 @@ export const CAMERA = {
 export const DEBUG = {
   enabled:
     typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("debug"),
+    new URLSearchParams(window.location.search).has("pathdebug"),
 };
 
 export function planetToLocoRatio(): number {
