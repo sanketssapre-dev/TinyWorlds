@@ -3,18 +3,56 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tiny Worlds : A Silent Flight</title>
-    <link rel="stylesheet" href="/src/style.css" />
+    <title>Tiny Worlds</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Palatino Linotype", Palatino, "Times New Roman", serif;
+        background: #05060d;
+        color: #e8dfc8;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+      }
+      main {
+        max-width: 28rem;
+        padding: 2rem;
+        text-align: center;
+      }
+      h1 {
+        font-weight: normal;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.4rem;
+      }
+      p {
+        margin: 0 0 2rem;
+        opacity: 0.72;
+        font-size: 0.95rem;
+      }
+      a {
+        display: block;
+        margin: 0.75rem 0;
+        padding: 0.85rem 1rem;
+        color: #e8dfc8;
+        text-decoration: none;
+        border: 1px solid rgba(212, 179, 106, 0.35);
+        border-radius: 4px;
+      }
+      a:hover {
+        border-color: rgba(212, 179, 106, 0.75);
+        background: rgba(212, 179, 106, 0.08);
+      }
+    </style>
   </head>
   <body>
-    <div id="app">
-      <canvas id="world"></canvas>
-      <div id="hud"></div>
-      <div id="loader">
-        <p class="flight-title">Tiny Worlds : A Silent Flight</p>
-      </div>
-      <div id="error" hidden></div>
-    </div>
-    <script type="module" src="/src/main.ts"></script>
+    <main>
+      <h1>Tiny Worlds</h1>
+      <p>Two quiet spheres. Pick a voyage.</p>
+      <a href="./ASilentFlight/">A Silent Flight</a>
+      <a href="./ASilentSail/">A Silent Sail</a>
+    </main>
   </body>
 </html>

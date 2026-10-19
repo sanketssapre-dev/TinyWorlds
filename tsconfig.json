@@ -15,5 +15,5 @@
     "noFallthroughCasesInSwitch": true,
     "resolveJsonModule": true
   },
-  "include": ["src"]
+  "include": ["ASilentFlight/src", "ASilentSail/src"]
 }

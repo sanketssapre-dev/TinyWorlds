@@ -225,9 +225,9 @@ type LifeActors = {
   flames: FlickerNode[];
   fires: FireNode[];
   smokes: Object3D[];
-  lamps: Mesh[];
   sails: FlickerNode[];
   sheep: SheepActor[];
+  lamps: Mesh[];
 };
 
 function emptyLife(): LifeActors {
@@ -238,9 +238,9 @@ function emptyLife(): LifeActors {
     flames: [],
     fires: [],
     smokes: [],
-    lamps: [],
     sails: [],
     sheep: [],
+    lamps: [],
   };
 }
 
@@ -1802,12 +1802,12 @@ export function updateLife(root: Group, t: number): void {
   for (const node of actors.flames) flickerFlames(node.obj, t, node.phase);
   for (const node of actors.fires) flickerFire(node.light, t, node.phase, node.base);
   for (const smoke of actors.smokes) driftSmoke(smoke, t);
-  for (const lamp of actors.lamps) flickerRunwayLamp(lamp, t);
   for (const node of actors.sails) {
     node.obj.rotation.x = 0;
     node.obj.rotation.y = 0;
     node.obj.rotation.z = t * 0.33 + node.phase;
   }
+  for (const lamp of actors.lamps) flickerRunwayLamp(lamp, t);
   for (const sheep of actors.sheep) {
     const phase = sheep.phase;
     const angle = sheep.sliceCenter + sheep.lane + Math.sin(t * 0.18 + phase) * 0.14;
@@ -1846,6 +1846,11 @@ function driftSmoke(wisps: Object3D, t: number): void {
   });
 }
 
+function flickerFlames(flames: Object3D, t: number, phase: number): void {
+  const flicker = 0.8 + Math.sin(t * 8.6 + phase) * 0.14 + Math.sin(t * 14.1 + phase) * 0.07;
+  flames.scale.set(1, Math.max(0.5, flicker), 1);
+}
+
 function runwayBlink(t: number, phase: number): number {
   const pulse = 0.4 + 0.6 * Math.sin(t * 6.2 + phase);
   const dip = Math.sin(t * 17.4 + phase * 2.2) > 0.84 ? 0.2 : 1;
@@ -1855,11 +1860,6 @@ function runwayBlink(t: number, phase: number): number {
 function flickerRunwayLamp(lamp: Mesh, t: number): void {
   const mat = lamp.material as MeshStandardMaterial;
   mat.emissiveIntensity = 1.7 * runwayBlink(t, lamp.userData.phase as number);
-}
-
-function flickerFlames(flames: Object3D, t: number, phase: number): void {
-  const flicker = 0.8 + Math.sin(t * 8.6 + phase) * 0.14 + Math.sin(t * 14.1 + phase) * 0.07;
-  flames.scale.set(1, Math.max(0.5, flicker), 1);
 }
 
 function flickerFire(light: PointLight, t: number, phase: number, base: number): void {
