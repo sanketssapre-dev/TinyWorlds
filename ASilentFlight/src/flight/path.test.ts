@@ -13,11 +13,6 @@ function maxTangentStep(path: ReturnType<typeof createFlightPath>): number {
   return maxTurn;
 }
 
-function phiOf(point: Vector3): number {
-  const phi = Math.atan2(point.z, point.x);
-  return phi < 0 ? phi + Math.PI * 2 : phi;
-}
-
 describe("flight path", () => {
   const path = createFlightPath(768);
 
