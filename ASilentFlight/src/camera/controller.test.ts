@@ -2,7 +2,7 @@ import { Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { CAMERA } from "../config";
 import { createCamera, snapCamera } from "./controller";
-import { createFlightPath, getSampleAt } from "../railway/path";
+import { createFlightPath, getSampleAt } from "../flight/path";
 
 describe("above-world camera", () => {
   it("keeps the overhead view aligned to the aircraft at maximum zoom", () => {

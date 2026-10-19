@@ -22,7 +22,7 @@ import {
 import { indexPlanetSurface } from "./planet/surface";
 import { createBoats, updateBoats } from "./planet/boats";
 import { createWater, updateWater } from "./planet/water";
-import { createFlightPath, getSampleAt, scratchSample } from "./railway/path";
+import { createFlightPath, getSampleAt, scratchSample } from "./flight/path";
 import {
   createEnvironment,
   createPlanetaryRings,

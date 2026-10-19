@@ -9,11 +9,11 @@ import {
   SphereGeometry,
   Vector3,
 } from "three";
-import { hash01 } from "../flight/math/noise";
-import { sphToCart } from "../flight/math/sphere";
+import { hash01 } from "../math/noise";
+import { sphToCart } from "../math/sphere";
 import { WATER_LEVEL } from "../config";
 import { SETTLEMENT_ISLANDS, heightOffset, isDryLand, slopeMagnitude, surfaceRadius } from "./height";
-import { SITES } from "../flight/planet/features";
+import { SITES } from "./features";
 
 const dummy = new Object3D();
 const up = new Vector3(0, 1, 0);

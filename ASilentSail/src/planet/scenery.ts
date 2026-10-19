@@ -1,14 +1,14 @@
 import { Group, InstancedMesh, Matrix4, Mesh, Object3D, Vector3 } from "three";
-import { RailwayPath } from "../flight/railway/path";
+import { SailPath } from "../sail/path";
 import {
   createScenery as createBaseScenery,
   seatOnGround,
   sceneryTime,
   updateLife,
   createFireflies,
-} from "../flight/planet/scenery";
-import { PlanetSurface } from "../flight/planet/surface";
-import { cartToSph, sphToCart } from "../flight/math/sphere";
+} from "./baseScenery";
+import { PlanetSurface } from "./surface";
+import { cartToSph, sphToCart } from "../math/sphere";
 import { isDryLand, surfaceRadius, waterSurfaceRadius } from "./height";
 import { createIslandTrees } from "./islandTrees";
 
@@ -34,7 +34,7 @@ export function updateFireflies(group: Group, t: number): void {
 const worldPos = new Vector3();
 const mat = new Matrix4();
 
-export function buildSailScenery(path: RailwayPath, surface: PlanetSurface): Group {
+export function buildSailScenery(path: SailPath, surface: PlanetSurface): Group {
   const root = createBaseScenery(path);
   removeAirfield(root);
   seatOnGround(root, surface);

@@ -22,7 +22,7 @@ import {
 import { FLIGHT, SEARCH_LIGHT } from "../config";
 import { wrap01 } from "../math/sphere";
 import { mergeRigidMeshes } from "../render/mergeRigid";
-import { RailwayPath, getSampleAt, scratchSample } from "../railway/path";
+import { FlightPath, getSampleAt, scratchSample } from "./path";
 
 const basis = new Matrix4();
 const right = new Vector3();
@@ -100,7 +100,7 @@ export function createFlight(): FlightState {
   };
 }
 
-export function updateFlight(state: FlightState, path: RailwayPath, dt: number): void {
+export function updateFlight(state: FlightState, path: FlightPath, dt: number): void {
   state.distance = wrap01(state.distance + state.speed * dt, path.totalLength);
   state.spin += dt * 22;
   pose(state, path, dt);
@@ -108,7 +108,7 @@ export function updateFlight(state: FlightState, path: RailwayPath, dt: number):
   updateWingLights(state.wingLights, state.spin / 22);
 }
 
-function pose(state: FlightState, path: RailwayPath, dt: number): void {
+function pose(state: FlightState, path: FlightPath, dt: number): void {
   const f = getSampleAt(path, state.distance, scratchSample());
   state.craft.position.copy(f.position);
   right.copy(f.binormal).negate();
