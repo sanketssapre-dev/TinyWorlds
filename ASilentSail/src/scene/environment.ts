@@ -10,13 +10,9 @@ import {
   FogExp2,
   Group,
   HemisphereLight,
-  InstancedMesh,
   LinearFilter,
   Matrix4,
   Mesh,
-  MeshStandardMaterial,
-  Points,
-  PointsMaterial,
   Quaternion,
   RGBAFormat,
   Scene,
@@ -28,7 +24,7 @@ import {
   UnsignedByteType,
   Vector3,
 } from "three";
-import { ATMOSPHERE, MOON, PLANET, PLANETARY_RING, STARFIELD, SUN } from "../config";
+import { ATMOSPHERE, MOON, PLANET, STARFIELD, SUN } from "../config";
 import { sphToCart } from "../math/sphere";
 
 export function createEnvironment(scene: Scene): Group {
@@ -193,9 +189,6 @@ export function createAtmosphere(): Mesh {
   return mesh;
 }
 
-export const MOON_ORBIT_DISTANCE = MOON.smallerOrbitDistance;
-export const PLANETARY_RING_DISTANCE = PLANETARY_RING.orbitDistance;
-
 export function createMoons(): Group {
   const moons = new Group();
   moons.name = "natural-moons";
@@ -262,152 +255,6 @@ function moonMaterial(color: string): ShaderMaterial {
     vertexShader: `varying vec3 vN; void main(){ vN = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
     fragmentShader: `varying vec3 vN; uniform vec3 uColor; void main(){ float l = 0.35 + 0.65 * max(0.0, dot(normalize(vN), vec3(0.4,0.6,0.3))); gl_FragColor = vec4(uColor * l, 1.0); }`,
   });
-}
-
-const RING_SOIL_COLORS = ["#d2a832", "#c69524", "#dfb747"];
-const RING_BAND_SPEEDS = [0.0001, -0.00013, 0.00016];
-
-export function createPlanetaryRings(): Group {
-  const rings = new Group();
-  rings.name = "planetary-soil-rings";
-  rings.rotation.set(...PLANETARY_RING.orientation);
-  rings.visible = PLANETARY_RING.visibleByDefault;
-
-  const geometry = createAsteroidGeometry();
-  for (let i = 0; i < PLANETARY_RING.asteroidCounts.length; i++) {
-    const count = PLANETARY_RING.asteroidCounts[i];
-    const material = new MeshStandardMaterial({
-      color: "#ffffff",
-      roughness: 0.64,
-      metalness: 0.24,
-      flatShading: true,
-      emissive: "#a87912",
-      emissiveIntensity: PLANETARY_RING.asteroidGlowIntensity,
-      fog: false,
-    });
-    const belt = new InstancedMesh(geometry, material, count);
-    belt.name = `planetary-asteroid-belt-${i + 1}`;
-    belt.frustumCulled = false;
-    const centers = scatterAsteroids(
-      belt,
-      i,
-      PLANETARY_RING.bandOffsets[i],
-      PLANETARY_RING.bandWidths[i],
-    );
-    const lodGeometry = new BufferGeometry();
-    lodGeometry.setAttribute("position", new Float32BufferAttribute(centers, 3));
-    const lod = new Points(
-      lodGeometry,
-      new PointsMaterial({
-        color: RING_SOIL_COLORS[i],
-        size: PLANETARY_RING.pointLodSize,
-        sizeAttenuation: false,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        fog: false,
-      }),
-    );
-    lod.name = "planetary-asteroid-point-lod";
-    lod.frustumCulled = false;
-
-    const beltGroup = new Group();
-    beltGroup.name = `planetary-asteroid-belt-${i + 1}`;
-    beltGroup.userData.flowSpeed = RING_BAND_SPEEDS[i];
-    beltGroup.add(belt, lod);
-    rings.add(beltGroup);
-  }
-  return rings;
-}
-
-export function updatePlanetaryRings(group: Group, dt: number, cameraRadius = 0): void {
-  if (!group.visible) return;
-  const pointLodFade = smoothstep(
-    PLANETARY_RING.pointLodFadeStart,
-    PLANETARY_RING.pointLodFadeEnd,
-    cameraRadius,
-  );
-  for (const belt of group.children) {
-    belt.rotateY((belt.userData.flowSpeed as number) * dt);
-    const lod = belt.getObjectByName("planetary-asteroid-point-lod") as Points | undefined;
-    if (lod) {
-      (lod.material as PointsMaterial).opacity = pointLodFade * PLANETARY_RING.pointLodOpacity;
-    }
-  }
-}
-
-function createAsteroidGeometry(): BufferGeometry {
-  const geometry = new SphereGeometry(1, 10, 8);
-  const positions = geometry.getAttribute("position");
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i);
-    const y = positions.getY(i);
-    const z = positions.getZ(i);
-    const seed = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
-    const roughness = 0.88 + (seed - Math.floor(seed)) * 0.24;
-    positions.setXYZ(i, x * roughness, y * roughness, z * roughness);
-  }
-  geometry.computeBoundingBox();
-  const bounds = geometry.boundingBox!;
-  const maxDimension = Math.max(
-    bounds.max.x - bounds.min.x,
-    bounds.max.y - bounds.min.y,
-    bounds.max.z - bounds.min.z,
-  );
-  geometry.scale(2 / maxDimension, 2 / maxDimension, 2 / maxDimension);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-function scatterAsteroids(
-  belt: InstancedMesh,
-  index: number,
-  offset: number,
-  width: number,
-): Float32Array {
-  let seed = 0x9e3779b9 ^ (index + 1) * 0x85ebca6b;
-  const random = (): number => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let value = seed;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
-  const matrix = new Matrix4();
-  const position = new Vector3();
-  const scale = new Vector3();
-  const quaternion = new Quaternion();
-  const color = new Color();
-  const axis = new Vector3();
-  const radius = PLANETARY_RING_DISTANCE + offset;
-  const centers = new Float32Array(belt.count * 3);
-
-  for (let i = 0; i < belt.count; i++) {
-    const angle = random() * Math.PI * 2;
-    const radialOffset = (random() - 0.5) * width;
-    const orbitalRadius = radius + radialOffset;
-    position.set(Math.cos(angle) * orbitalRadius, (random() - 0.5) * 0.8, Math.sin(angle) * orbitalRadius);
-    centers.set([position.x, position.y, position.z], i * 3);
-    axis.set(random() - 0.5, random() - 0.5, random() - 0.5).normalize();
-    quaternion.setFromAxisAngle(axis, random() * Math.PI * 2);
-    const [minSizeRatio, maxSizeRatio] = PLANETARY_RING.asteroidSizeRatioRange;
-    const size =
-      MOON.radius *
-      MOON.secondScale *
-      (minSizeRatio + random() * (maxSizeRatio - minSizeRatio));
-    scale.setScalar(size);
-    matrix.compose(position, quaternion, scale);
-    belt.setMatrixAt(i, matrix);
-
-    const shade = 0.78 + random() * 0.36;
-    color.set(RING_SOIL_COLORS[index]).multiplyScalar(shade);
-    belt.setColorAt(i, color);
-  }
-
-  belt.instanceMatrix.needsUpdate = true;
-  if (belt.instanceColor) belt.instanceColor.needsUpdate = true;
-  return centers;
 }
 
 function smoothstep(edge0: number, edge1: number, value: number): number {
