@@ -1,7 +1,7 @@
 import { PerspectiveCamera, Quaternion, Vector3 } from "three";
 import { CAMERA, PLANET } from "../config";
 import { heightOffset } from "../planet/height";
-import { PathSample } from "../railway/path";
+import { PathSample } from "../flight/path";
 
 export type CameraMode = "behind" | "above";
 

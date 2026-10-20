@@ -7,7 +7,7 @@ import {
   SphereGeometry,
   Vector3,
 } from "three";
-import { RailwayPath, getSampleAt, scratchSample } from "../railway/path";
+import { FlightPath, getSampleAt, scratchSample } from "../flight/path";
 
 const MARKER_SPACING = 0.75;
 const FLOAT_HEIGHT = 0.18;
@@ -17,7 +17,7 @@ const dotGeometry = new SphereGeometry(0.07, 8, 6);
 const dashGeometry = new CylinderGeometry(0.02, 0.02, 0.24, 6);
 
 /** Temporary, color-coded markers for comparing all flight route variants. */
-export function createFlightPathMarkers(paths: readonly RailwayPath[]): Group {
+export function createFlightPathMarkers(paths: readonly FlightPath[]): Group {
   const root = new Group();
   root.name = "flight-path-debug-markers";
 

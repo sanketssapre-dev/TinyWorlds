@@ -9,9 +9,9 @@ import {
 } from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { PLANET, WATER_LEVEL } from "../config";
-import { cartToSph, angularDistance } from "../flight/math/sphere";
+import { cartToSph, angularDistance } from "../math/sphere";
 import { heightOffset } from "./height";
-import { SITES } from "../flight/planet/features";
+import { SITES } from "./features";
 
 const grassA = new Color("#3f5c3a");
 const grassB = new Color("#5a7044");

@@ -1,7 +1,7 @@
 import { Matrix4, Mesh, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { FLIGHT } from "../config";
-import { createFlightPath, getSampleAt } from "../railway/path";
+import { createFlightPath, getSampleAt } from "./path";
 import { createFlight, updateFlight } from "./biplane";
 
 const path = createFlightPath(512);

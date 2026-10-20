@@ -9,7 +9,7 @@ import {
   SphereGeometry,
   Vector3,
 } from "three";
-import { RailwayPath, getSampleAt, scratchSample } from "../flight/railway/path";
+import { SailPath, getSampleAt, scratchSample } from "../sail/path";
 
 const MARKER_SPACING = 3.4;
 /** Ride height is only a draft above the flood. Lift the ribbon clear of the surface. */
@@ -25,7 +25,7 @@ const dummy = new Object3D();
 const basis = new Matrix4();
 
 /** Glowing dots and dashes for every yacht route. Open with ?pathdebug */
-export function createSailPathMarkers(paths: readonly RailwayPath[]): Group {
+export function createSailPathMarkers(paths: readonly SailPath[]): Group {
   const root = new Group();
   root.name = "sail-path-debug-markers";
 

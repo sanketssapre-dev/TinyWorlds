@@ -1,8 +1,29 @@
-﻿import { Quaternion, Vector3 } from "three";
-import { PathSample, RailwayPath } from "../flight/railway/path";
-import { cartToSph, orthonormalFrame, sphToCart } from "../flight/math/sphere";
+import { Quaternion, Vector3 } from "three";
+import { cartToSph, orthonormalFrame, sphToCart, wrap01 } from "../math/sphere";
 import { PLANET, SAIL, WATER_LEVEL } from "../config";
 import { heightOffset } from "../planet/height";
+
+export type PathSample = {
+  position: Vector3;
+  tangent: Vector3;
+  normal: Vector3;
+  binormal: Vector3;
+  s: number;
+  trackRadius: number;
+  groundRadius: number;
+  elevation: number;
+  inTunnel: boolean;
+  inCutting: boolean;
+};
+
+export type SailPath = {
+  samples: PathSample[];
+  totalLength: number;
+  controlPoints: Vector3[];
+};
+
+/** Retained alias for SailPath */
+export type RailwayPath = SailPath;
 
 const THETA_MIN = 0.52;
 const THETA_MAX = Math.PI - 0.52;
@@ -396,3 +417,58 @@ function finishPath(positions: Vector3[]): RailwayPath {
   });
   return { samples, totalLength, controlPoints: positions };
 }
+
+const scratch: PathSample = freshSample();
+
+export function scratchSample(): PathSample {
+  return scratch;
+}
+
+function freshSample(): PathSample {
+  return {
+    position: new Vector3(),
+    tangent: new Vector3(),
+    normal: new Vector3(),
+    binormal: new Vector3(),
+    s: 0,
+    trackRadius: 0,
+    groundRadius: 0,
+    elevation: 0,
+    inTunnel: false,
+    inCutting: false,
+  };
+}
+
+export function getSampleAt(path: SailPath, s: number, out?: PathSample): PathSample {
+  const samples = path.samples;
+  const dist = wrap01(s, path.totalLength);
+  let lo = 0;
+  let hi = samples.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (samples[mid].s <= dist) lo = mid;
+    else hi = mid;
+  }
+  const a = samples[lo];
+  const b = samples[hi];
+  const span = Math.max(1e-8, b.s - a.s);
+  const k = (dist - a.s) / span;
+  return lerpSample(a, b, k, out ?? freshSample());
+}
+
+function lerpSample(a: PathSample, b: PathSample, k: number, out: PathSample): PathSample {
+  out.position.copy(a.position).lerp(b.position, k);
+  out.tangent.copy(a.tangent).lerp(b.tangent, k).normalize();
+  const frame = orthonormalFrame(out.position, out.tangent, a.binormal);
+  out.tangent.copy(frame.tangent);
+  out.normal.copy(frame.normal);
+  out.binormal.copy(frame.binormal);
+  out.s = a.s + (b.s - a.s) * k;
+  out.trackRadius = a.trackRadius + (b.trackRadius - a.trackRadius) * k;
+  out.groundRadius = a.groundRadius + (b.groundRadius - a.groundRadius) * k;
+  out.elevation = a.elevation + (b.elevation - a.elevation) * k;
+  out.inTunnel = false;
+  out.inCutting = false;
+  return out;
+}
+

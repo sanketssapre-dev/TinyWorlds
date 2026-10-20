@@ -1,4 +1,4 @@
-/** Central scene scale. Planet diameter : locomotive length = 60 : 1. */
+/** Central scene scale and flight constants. */
 
 export const PLANET = {
   radius: 45,
@@ -15,29 +15,6 @@ export const PLANET = {
 export const ATMOSPHERE = {
   fadeStart: 72,
   fadeEnd: 160,
-} as const;
-
-export const TRAIN = {
-  locomotiveLength: 1.5,
-  /** World units per second. A lap takes a long, quiet while. */
-  defaultSpeed: 0.42,
-  minSpeed: 0.16,
-  maxSpeed: 1.2,
-  wheelRadius: 0.09,
-} as const;
-
-export const TRACK = {
-  gauge: 0.28,
-  railRadius: 0.018,
-  sleeperSpacing: 0.2,
-  sleeperWidth: 0.42,
-  sleeperLength: 0.08,
-  sleeperHeight: 0.035,
-  ballastWidth: 0.72,
-  bedOffset: 0.1,
-  pierSpacing: 1.65,
-  elevatedThreshold: 0.72,
-  tunnelClearance: 2.15,
 } as const;
 
 export const FLIGHT = {
@@ -122,7 +99,3 @@ export const DEBUG = {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("pathdebug"),
 };
-
-export function planetToLocoRatio(): number {
-  return PLANET.diameter / TRAIN.locomotiveLength;
-}

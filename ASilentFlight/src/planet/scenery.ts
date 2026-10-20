@@ -26,7 +26,7 @@ import {
 import { PLANET } from "../config";
 import { fbm3, hash01 } from "../math/noise";
 import { angularDistance, cartToSph, sphToCart } from "../math/sphere";
-import { RailwayPath } from "../railway/path";
+import { FlightPath } from "../flight/path";
 import { SITES } from "./features";
 import { heightOffset, slopeMagnitude, surfaceRadius } from "./height";
 import { PlanetSurface } from "./surface";
@@ -261,7 +261,7 @@ function swayFoliage(mat: MeshStandardMaterial): void {
   };
 }
 
-export function createScenery(path: RailwayPath): Group {
+export function createScenery(path: FlightPath): Group {
   life = emptyLife();
   const root = new Group();
   root.name = "scenery";
@@ -288,7 +288,7 @@ function orient(obj: Object3D, pos: Vector3, up: Vector3, yaw = 0): void {
   if (yaw) obj.rotateY(yaw);
 }
 
-function tooCloseToTrack(pos: Vector3, path: RailwayPath, minDist: number): boolean {
+function tooCloseToFlightPath(pos: Vector3, path: FlightPath, minDist: number): boolean {
   let best = Infinity;
   const step = 8;
   for (let i = 0; i < path.samples.length; i += step) {
@@ -356,7 +356,7 @@ function nearLandingStrip(theta: number, phi: number): boolean {
 function canPlantTree(
   theta: number,
   phi: number,
-  path: RailwayPath,
+  path: FlightPath,
   lakeside = false,
 ): boolean {
   const h = heightOffset(theta, phi);
@@ -366,7 +366,7 @@ function canPlantTree(
   if (insidePaddock(theta, phi)) return false;
   if (nearLandingStrip(theta, phi)) return false;
   const pos = sphToCart(surfaceRadius(theta, phi), theta, phi);
-  if (tooCloseToTrack(pos, path, 1.4)) return false;
+  if (tooCloseToFlightPath(pos, path, 1.4)) return false;
   return true;
 }
 
@@ -381,7 +381,7 @@ function treeKind(a: number, b: number, c: number, salt: number): number {
   return 2;
 }
 
-function createTrees(path: RailwayPath): Group {
+function createTrees(path: FlightPath): Group {
   const group = new Group();
   const trunkGeo = new CylinderGeometry(0.048, 0.102, 0.58, 6);
   trunkGeo.translate(0, 0.29, 0);
@@ -617,7 +617,7 @@ function createAncientTree(): Group {
   return g;
 }
 
-function createRocks(path: RailwayPath): InstancedMesh {
+function createRocks(path: FlightPath): InstancedMesh {
   const geo = new SphereGeometry(0.28, 5, 4);
   const mat = new MeshStandardMaterial({ color: "#6b6358", roughness: 0.95, flatShading: true });
   const items: { theta: number; phi: number; s: number }[] = [];
@@ -627,7 +627,7 @@ function createRocks(path: RailwayPath): InstancedMesh {
     const h = heightOffset(theta, phi);
     if (h < -0.4 || nearWater(theta, phi) || nearLandingStrip(theta, phi)) continue;
     const pos = sphToCart(surfaceRadius(theta, phi), theta, phi);
-    if (tooCloseToTrack(pos, path, 0.7)) continue;
+    if (tooCloseToFlightPath(pos, path, 0.7)) continue;
     items.push({ theta, phi, s: 0.5 + hash01(i, 9, 1, 42) * 1.6 });
   }
   const mesh = new InstancedMesh(geo, mat, Math.max(1, items.length));
@@ -645,7 +645,7 @@ function createRocks(path: RailwayPath): InstancedMesh {
   return mesh;
 }
 
-function createGrassTufts(path: RailwayPath): InstancedMesh {
+function createGrassTufts(path: FlightPath): InstancedMesh {
   const geo = new ConeGeometry(0.07, 0.22, 4);
   geo.translate(0, 0.11, 0);
   const mat = new MeshStandardMaterial({ color: "#4e6a3d", roughness: 0.9 });
@@ -657,7 +657,7 @@ function createGrassTufts(path: RailwayPath): InstancedMesh {
     const slope = slopeMagnitude(theta, phi);
     if (h < 0.05 || h > 6.2 || slope > 6 || nearWater(theta, phi) || nearLandingStrip(theta, phi)) continue;
     const pos = sphToCart(surfaceRadius(theta, phi), theta, phi);
-    if (tooCloseToTrack(pos, path, 0.55)) continue;
+    if (tooCloseToFlightPath(pos, path, 0.55)) continue;
     items.push({ theta, phi });
   }
   const mesh = new InstancedMesh(geo, mat, Math.max(1, items.length));

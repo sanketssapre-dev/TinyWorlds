@@ -7,7 +7,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { CAMERA, DEBUG } from "./config";
-import { createCamera, notifyOrbit, snapCamera, updateCamera } from "./flight/camera/controller";
+import { createCamera, notifyOrbit, snapCamera, updateCamera } from "./camera/controller";
 import { createPlanetMesh } from "./planet/mesh";
 import {
   buildSailScenery,
@@ -16,12 +16,12 @@ import {
   updateFireflies,
   updateLife,
 } from "./planet/scenery";
-import { indexPlanetSurface } from "./flight/planet/surface";
+import { indexPlanetSurface } from "./planet/surface";
 import { createWater, updateWater } from "./planet/water";
-import { getSampleAt, scratchSample } from "./flight/railway/path";
-import { createEnvironment } from "./flight/scene/environment";
+import { getSampleAt, scratchSample } from "./sail/path";
+import { createEnvironment } from "./scene/environment";
 import { freezeStaticObjects } from "./render/freezeStatic";
-import { skipInvisibleDirectLight } from "./flight/render/liveLights";
+import { skipInvisibleDirectLight } from "./render/liveLights";
 import { createHud } from "./ui/hud";
 import { createSailPath, FLEET_ROUTES } from "./sail/path";
 import { createFleet, focusNextYacht, updateFleet } from "./sail/yacht";
