@@ -103,7 +103,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
     const pts = [...pointers.values()];
     const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     if (pinch) {
-      cameraRig.zoom = clamp(cameraRig.zoom * (pinch / d), OVERHEAD_MIN, CAMERA.maxOverheadZoom);
+      cameraRig.zoom = clamp(cameraRig.zoom * (pinch / d), CAMERA.minOverheadZoom, CAMERA.maxOverheadZoom);
       notifyOrbit(cameraRig);
     }
     pinch = d;
@@ -114,8 +114,11 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const step = Math.max(1.2, cameraRig.zoom * 0.08);
-    cameraRig.zoom = clamp(cameraRig.zoom + Math.sign(e.deltaY) * step, OVERHEAD_MIN, CAMERA.maxOverheadZoom);
+    cameraRig.zoom = clamp(
+      cameraRig.zoom + Math.sign(e.deltaY) * 0.55,
+      CAMERA.minOverheadZoom,
+      CAMERA.maxOverheadZoom,
+    );
     notifyOrbit(cameraRig);
   };
 
@@ -156,8 +159,6 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
     renderer.dispose();
   });
 }
-
-const OVERHEAD_MIN = 9;
 
 function clamp(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v));

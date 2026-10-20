@@ -122,12 +122,12 @@ describe("celestial bodies", () => {
       CAMERA.maxOverheadZoom + PLANETARY_RING.orbitDistance + MOON.largerOrbitDistance,
     );
     expect(CAMERA.minOverheadZoom).toBeCloseTo(30.8);
-    expect(CAMERA.minZoom).toBeCloseTo(8.4 * 1.2);
+    expect(CAMERA.minZoom).toBeCloseTo(8.064);
     expect(PLANET.atmosphereRadius).toBeGreaterThan(
       PLANET.radius + PLANET.maxHeight + FLIGHT.cruise + CAMERA.maxOverheadZoom,
     );
-    expect(CAMERA.maxZoom).toBeCloseTo(48 * 0.85);
-    expect(CAMERA.minZoom).toBeCloseTo(10.08);
+    expect(CAMERA.maxZoom).toBeCloseTo(40.8);
+    expect(CAMERA.minZoom).toBeCloseTo(8.064);
   });
 
   it("places a warm visible Sun along the existing illumination direction", () => {
