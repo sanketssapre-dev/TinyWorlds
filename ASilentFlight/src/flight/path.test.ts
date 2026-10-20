@@ -1,4 +1,3 @@
-import { Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { FLIGHT, PLANET } from "../config";
 import { createFlightPath, getSampleAt } from "./path";
