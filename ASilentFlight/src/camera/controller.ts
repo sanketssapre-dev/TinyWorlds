@@ -30,12 +30,12 @@ export function createCamera(aspect: number): CameraRig {
   const camera = new PerspectiveCamera(CAMERA.fov, aspect, CAMERA.near, CAMERA.far);
   return {
     camera,
-    mode: "behind",
-    overhead: false,
+    mode: "above",
+    overhead: true,
     userOrbit: false,
     yaw: 0,
-    pitch: 0.08,
-    zoom: CAMERA.followDistance,
+    pitch: 0,
+    zoom: 20.352,
   };
 }
 

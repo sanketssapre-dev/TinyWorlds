@@ -22,7 +22,7 @@ export const SUN = {
 
 export const MOON = {
   radius: 4.8,
-  secondScale: 0.8,
+  secondScale: 0.96,
   smallerOrbitDistance: PLANET.diameter,
   largerOrbitDistance: PLANET.diameter * 1.5,
 } as const;
@@ -41,7 +41,7 @@ export const CAMERA = {
   followHeight: 3.6,
   lookAhead: 4.8,
   overheadDistance: 40,
-  minZoom: 10.08,
+  minZoom: 8.064,
   maxZoom: 40.8,
   maxOverheadZoom: 367.2,
   minOverheadZoom: 30.8,
@@ -59,7 +59,7 @@ export const WATER_LEVEL = 3.05;
 
 export const SAIL = {
   /** Hull origin sits this far above the flood plane so swell stays on the topsides. */
-  draft: 0.1,
+  draft: 3.35,
   /** Guest cruise. Hero runs at speed * heroMul. */
   speed: 0.84,
   heroMul: 1.5,
