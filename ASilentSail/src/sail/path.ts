@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from "three";
 import { cartToSph, orthonormalFrame, sphToCart, wrap01 } from "../math/sphere";
-import { PLANET, SAIL, WATER_LEVEL } from "../config";
+import { PLANET, WATER_LEVEL } from "../config";
 import { heightOffset } from "../planet/height";
 
 export type PathSample = {
@@ -182,7 +182,7 @@ function smoothCircular(values: number[], radius: number): number[] {
 }
 
 function rideRadius(): number {
-  return PLANET.radius + WATER_LEVEL + SAIL.draft;
+  return PLANET.radius + WATER_LEVEL;
 }
 
 function projectOpen(positions: Vector3[], phis: number[]): void {
