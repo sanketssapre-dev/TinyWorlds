@@ -78,13 +78,6 @@
         opacity: 0.6;
         pointer-events: none;
       }
-      .coming-soon {
-        margin: 0.25rem 0 0;
-        font-size: 0.75rem;
-        opacity: 0.6;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
     </style>
   </head>
   <body>
@@ -142,8 +135,10 @@
       </div>
       <p>Two quiet worlds. Not a game, not a task. Just places you can put on a screen — while you work, while you drink coffee, while the day goes on around you.</p>
       <a href="./ASilentFlight/">A Silent Flight</a>
-      <a href="#" style="pointer-events: none; cursor: default; opacity: 0.7;">A Silent Sail</a>
-      <p class="coming-soon">(coming soon)</p>
+      <a href="#" style="pointer-events: none; cursor: default; opacity: 0.7; display: block; text-align: center;">
+        A Silent Sail
+        <span style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-top: 0.25rem;">(coming soon)</span>
+      </a>
     </main>
   </body>
 </html>
