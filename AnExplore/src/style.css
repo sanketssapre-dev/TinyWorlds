@@ -1,0 +1,230 @@
+:root {
+  color-scheme: dark;
+  --ink: #e8dfc8;
+  --muted: #b7ad96;
+  --gold: #d4b36a;
+  --panel: rgba(10, 12, 18, 0.58);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #05060d;
+  font-family: "Palatino Linotype", Palatino, "Times New Roman", serif;
+  color: var(--ink);
+}
+
+#world {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#hud {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.chrome {
+  position: absolute;
+  inset: 0;
+  padding: 1.4rem 1.6rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.flight-title {
+  margin: 0;
+  font-family: "Palatino Linotype", Palatino, "Times New Roman", serif;
+  font-weight: 500;
+  font-size: clamp(1.15rem, 2.4vw, 1.75rem);
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-align: center;
+}
+
+#hud .flight-title {
+  position: absolute;
+  left: 1.4rem;
+  bottom: 1.4rem;
+  pointer-events: none;
+  font-size: clamp(0.7rem, 1.2vw, 0.92rem);
+  text-align: left;
+}
+
+.mode,
+.hints,
+.speed span {
+  margin: 0;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.scene-controls {
+  position: absolute;
+  right: 1.4rem;
+  bottom: 1.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  pointer-events: auto;
+}
+
+.scene-control {
+  display: grid;
+  place-items: center;
+  width: 2.85rem;
+  height: 2.85rem;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid rgba(212, 179, 106, 0.35);
+  backdrop-filter: blur(10px);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.scene-control svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+  stroke: none;
+}
+
+.panel {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem 1rem;
+  align-items: center;
+  width: fit-content;
+  max-width: min(92vw, 46rem);
+  padding: 0.75rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid rgba(212, 179, 106, 0.22);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid rgba(232, 223, 200, 0.2);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.btn:hover,
+.btn:focus-visible {
+  border-color: var(--gold);
+  color: var(--gold);
+  outline: none;
+}
+
+.speed {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.speed input {
+  width: 8rem;
+  accent-color: var(--gold);
+}
+
+.hints {
+  margin-top: 0.65rem;
+  max-width: 36rem;
+  line-height: 1.5;
+  transition: opacity 1.4s ease;
+}
+
+.hints.fade {
+  opacity: 0.18;
+}
+
+#loader[hidden],
+#error[hidden] {
+  display: none !important;
+}
+
+#loader,
+#error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at center, #141826 0%, #05060d 70%);
+  z-index: 5;
+}
+
+.title-frame {
+  position: relative;
+  text-align: center;
+  padding: 2.5rem 3rem;
+  min-width: 10rem;
+}
+
+.title-frame .corner {
+  position: absolute;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+}
+
+.title-frame .c-tl {
+  top: 0.7rem;
+  left: 0.7rem;
+}
+
+.title-frame .c-tr {
+  top: 0.7rem;
+  right: 0.7rem;
+}
+
+.title-frame .c-bl {
+  bottom: 0.7rem;
+  left: 0.7rem;
+}
+
+.title-frame .c-br {
+  bottom: 0.7rem;
+  right: 0.7rem;
+}
+
+#error {
+  text-align: center;
+  padding: 2rem;
+  color: #f3c2c2;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .scene-controls {
+    right: 0.9rem;
+    bottom: 0.9rem;
+  }
+
+  #hud .flight-title {
+    top: 0.9rem;
+  }
+}

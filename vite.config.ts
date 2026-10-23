@@ -13,6 +13,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         silentFlight: resolve(__dirname, "ASilentFlight/index.html"),
         silentSail: resolve(__dirname, "ASilentSail/index.html"),
+        anExplore: resolve(__dirname, "AnExplore/index.html"),
       },
     },
   },
