@@ -125,7 +125,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     cameraRig.zoom = clamp(
-      cameraRig.zoom + Math.sign(e.deltaY) * 0.55,
+      cameraRig.zoom + Math.sign(e.deltaY) * 1.1,
       zoomMin(cameraRig.overhead),
       zoomMax(cameraRig.overhead),
     );

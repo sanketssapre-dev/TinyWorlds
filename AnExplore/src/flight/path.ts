@@ -5,10 +5,26 @@ import {
   cartToSph,
   orthonormalFrame,
   sphToCart,
-  wrap01,
   wrapPhi,
 } from "../math/sphere";
 import { heightOffset } from "../planet/height";
+
+function smoothCircular(values: number[], radius: number): number[] {
+  const n = values.length;
+  const out = new Array<number>(n);
+  const sigma = Math.max(1, radius * 0.5);
+  for (let i = 0; i < n; i++) {
+    let acc = 0;
+    let wsum = 0;
+    for (let k = -radius; k <= radius; k++) {
+      const w = Math.exp(-(k * k) / (2 * sigma * sigma));
+      acc += w * values[(i + k + n) % n];
+      wsum += w;
+    }
+    out[i] = acc / wsum;
+  }
+  return out;
+}
 
 export type PathSample = {
   position: Vector3;
@@ -17,7 +33,6 @@ export type PathSample = {
   binormal: Vector3;
   s: number;
   flightRadius: number;
-  /** Retained alias for flightRadius */
   trackRadius: number;
   groundRadius: number;
   elevation: number;
@@ -31,8 +46,144 @@ export type FlightPath = {
   controlPoints: Vector3[];
 };
 
-/** Retained alias for FlightPath */
 export type RailwayPath = FlightPath;
+
+/** Where the world's single route begins: a calm latitude, clear of the poles. */
+const SEED_THETA = 0.95;
+const SEED_PHI = 0.12;
+
+/**
+ * A closed great-circle route through `dir`, leaving along `heading`.
+ *
+ * A great circle is the straightest line a sphere allows, so the route carries
+ * no kinks of its own. The only thing that ever reshapes it is the pilot
+ * turning — which is why the route is traced from the craft's live heading
+ * rather than pre-baked and then bent to fit.
+ */
+export function traceRoute(dir: Vector3, heading: Vector3, sampleCount = 512): FlightPath {
+  const n = Math.max(16, Math.floor(sampleCount));
+  const radial = dir.clone().normalize();
+
+  // Keep the heading in the tangent plane, so the circle leaves exactly along it.
+  const forward = heading.clone();
+  forward.addScaledVector(radial, -forward.dot(radial));
+  if (forward.lengthSq() < 1e-12) forward.copy(new Vector3(0, 1, 0).cross(radial));
+  forward.normalize();
+
+  const axis = new Vector3().crossVectors(radial, forward).normalize();
+  const step = (Math.PI * 2) / n;
+
+  const dirs: Vector3[] = [];
+  const grounds: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const d = radial.clone().applyAxisAngle(axis, i * step).normalize();
+    dirs.push(d);
+    const sph = cartToSph(d);
+    grounds.push(heightOffset(sph.theta, sph.phi));
+  }
+
+  // A wide spatial average keeps the cruise calm instead of bobbing over every hill.
+  const smoothGround = smoothCircular(grounds, Math.max(2, Math.round(n / 16)));
+
+  const samples: PathSample[] = [];
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const d = dirs[i];
+    const ride = Math.max(smoothGround[i] + FLIGHT.cruise, grounds[i] + FLIGHT.minClearance);
+    const position = d.clone().multiplyScalar(PLANET.radius + ride);
+    // For a circle swept about `axis`, the tangent is exactly axis x radius.
+    const tangent = new Vector3().crossVectors(axis, d).normalize();
+    const normal = d.clone();
+    const binormal = new Vector3().crossVectors(tangent, normal).normalize();
+
+    samples.push({
+      position,
+      tangent,
+      normal,
+      binormal,
+      s,
+      flightRadius: PLANET.radius + ride,
+      trackRadius: PLANET.radius + ride,
+      groundRadius: PLANET.radius + grounds[i],
+      elevation: ride,
+      inTunnel: false,
+      inCutting: false,
+    });
+
+    if (i > 0) s += position.distanceTo(samples[i - 1].position);
+  }
+  s += samples[0].position.distanceTo(samples[n - 1].position);
+
+  const first = samples[0];
+  samples.push({
+    position: first.position.clone(),
+    tangent: first.tangent.clone(),
+    normal: first.normal.clone(),
+    binormal: first.binormal.clone(),
+    s,
+    flightRadius: first.flightRadius,
+    trackRadius: first.trackRadius,
+    groundRadius: first.groundRadius,
+    elevation: first.elevation,
+    inTunnel: false,
+    inCutting: false,
+  });
+
+  return {
+    samples,
+    totalLength: s,
+    controlPoints: samples.slice(0, n).map((sample) => sample.position.clone()),
+  };
+}
+
+/** The world's opening route. The craft is placed on its first sample. */
+export function createFlightPath(sampleCount = 768): FlightPath {
+  const dir = sphToCart(1, SEED_THETA, SEED_PHI).normalize();
+  const heading = new Vector3(0, 1, 0).cross(dir).normalize();
+  return traceRoute(dir, heading, sampleCount);
+}
+
+export function getSampleAt(path: FlightPath, s: number, out?: PathSample): PathSample {
+  const n = path.samples.length;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (path.samples[mid].s < s) lo = mid + 1;
+    else hi = mid;
+  }
+  const i = Math.max(0, Math.min(lo, n - 2));
+  const a = path.samples[i];
+  const b = path.samples[i + 1];
+  const t = a.s < b.s ? (s - a.s) / (b.s - a.s) : 0;
+  const result = out || createPathSample();
+  result.position.lerpVectors(a.position, b.position, t);
+  result.tangent.lerpVectors(a.tangent, b.tangent, t).normalize();
+  result.normal.copy(a.normal).lerp(b.normal, t).normalize();
+  result.binormal.copy(a.binormal).lerp(b.binormal, t).normalize();
+  result.s = s;
+  result.flightRadius = a.flightRadius + (b.flightRadius - a.flightRadius) * t;
+  result.trackRadius = a.trackRadius + (b.trackRadius - a.trackRadius) * t;
+  result.groundRadius = a.groundRadius + (b.groundRadius - a.groundRadius) * t;
+  result.elevation = a.elevation + (b.elevation - a.elevation) * t;
+  result.inTunnel = a.inTunnel && b.inTunnel;
+  result.inCutting = a.inCutting && b.inCutting;
+  return result;
+}
+
+function createPathSample(): PathSample { return { position: new Vector3(), tangent: new Vector3(), normal: new Vector3(), binormal: new Vector3(), s: 0, flightRadius: 0, trackRadius: 0, groundRadius: 0, elevation: 0, inTunnel: false, inCutting: false }; }
+
+export function scratchSample(): PathSample {
+  return createPathSample();
+}
+
+/* ------------------------------------------------------------------ *
+ * The original app's routes.
+ *
+ * Three designed loops, each shifted once by its seed so no two visits fly
+ * quite the same line. The craft follows these in autopilot; in manual it
+ * leaves them and owns its own heading.
+ * ------------------------------------------------------------------ */
 
 type Waypoint = { theta: number; phi: number };
 
@@ -68,28 +219,11 @@ function thetaAt(keys: Waypoint[], phi: number): number {
   const b = keys[(i + 1) % keys.length];
   let bPhi = b.phi;
   if (bPhi <= a.phi) bPhi += Math.PI * 2;
-  let p2 = p < a.phi ? p + Math.PI * 2 : p;
+  const p2 = p < a.phi ? p + Math.PI * 2 : p;
   const span = bPhi - a.phi || 1;
   const t = Math.min(1, Math.max(0, (p2 - a.phi) / span));
   const s = t * t * (3 - 2 * t);
   return a.theta + (b.theta - a.theta) * s;
-}
-
-function smoothCircular(values: number[], radius: number): number[] {
-  const n = values.length;
-  const out = new Array<number>(n);
-  const sigma = Math.max(1, radius * 0.5);
-  for (let i = 0; i < n; i++) {
-    let acc = 0;
-    let wsum = 0;
-    for (let k = -radius; k <= radius; k++) {
-      const w = Math.exp(-(k * k) / (2 * sigma * sigma));
-      acc += w * values[(i + k + n) % n];
-      wsum += w;
-    }
-    out[i] = acc / wsum;
-  }
-  return out;
 }
 
 type Coarse = {
@@ -202,8 +336,8 @@ function varyFlightWaypoints(keys: Waypoint[], seed: number): Waypoint[] {
 
   const targetLateralRms = rms(lateral);
   const targetAlongRms = rms(along);
-  let softLateral = smoothClosed(smoothClosed(lateral));
-  let softAlong = smoothClosed(along);
+  const softLateral = smoothClosed(smoothClosed(lateral));
+  const softAlong = smoothClosed(along);
   matchRms(softLateral, targetLateralRms);
   matchRms(softAlong, targetAlongRms);
 
@@ -266,8 +400,35 @@ function restrainFlightWaypoints(original: Waypoint[], shifted: Waypoint[]): Way
   }));
 }
 
+function easeRoute(points: Coarse[]): void {
+  const n = points.length;
+  const next = points.map((p) => p.position.clone());
+  for (let i = 0; i < n; i++) {
+    const prev = points[(i - 1 + n) % n].position;
+    const curr = points[i].position;
+    const nxt = points[(i + 1) % n].position;
+    next[i].copy(prev).add(nxt).multiplyScalar(0.5);
+    next[i].lerp(curr, 0.62);
+  }
+  for (let i = 0; i < n; i++) points[i].position.copy(next[i]);
+}
+
+function liftCruise(p: Coarse): void {
+  const sph = cartToSph(p.position);
+  const ground = heightOffset(sph.theta, sph.phi);
+  let ride = p.position.length() - PLANET.radius;
+  if (ride < ground + FLIGHT.minClearance) {
+    ride = ground + FLIGHT.minClearance;
+    p.position.setLength(PLANET.radius + ride);
+  }
+  p.ground = ground;
+  p.ride = p.position.length() - PLANET.radius;
+  p.tunnel = false;
+  p.cutting = false;
+}
+
 /** Closed cruise above the hills. Waypoints shift once when the path is built. */
-export function createFlightPath(
+export function createAutopilotPath(
   sampleCount = 768,
   seed?: number,
   variant = 0,
@@ -364,108 +525,16 @@ export function createFlightPath(
   return { samples, totalLength, controlPoints };
 }
 
-function easeRoute(points: Coarse[]): void {
-  const n = points.length;
-  const next = points.map((p) => p.position.clone());
-  for (let i = 0; i < n; i++) {
-    const prev = points[(i - 1 + n) % n].position;
-    const curr = points[i].position;
-    const nxt = points[(i + 1) % n].position;
-    next[i].copy(prev).add(nxt).multiplyScalar(0.5);
-    next[i].lerp(curr, 0.62);
+/** Arc length of the sample nearest to a position, for rejoining a route. */
+export function nearestSampleDistance(path: FlightPath, position: Vector3): number {
+  let best = 0;
+  let bestDistance = Infinity;
+  for (const sample of path.samples) {
+    const distance = sample.position.distanceToSquared(position);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = sample.s;
+    }
   }
-  for (let i = 0; i < n; i++) points[i].position.copy(next[i]);
-}
-
-function liftCruise(p: Coarse): void {
-  const sph = sphericalOf(p.position);
-  const ground = heightOffset(sph.theta, sph.phi);
-  let ride = p.position.length() - PLANET.radius;
-  if (ride < ground + FLIGHT.minClearance) {
-    ride = ground + FLIGHT.minClearance;
-    p.position.setLength(PLANET.radius + ride);
-  }
-  p.ground = ground;
-  p.ride = p.position.length() - PLANET.radius;
-  p.tunnel = false;
-  p.cutting = false;
-}
-
-function sphericalOf(v: Vector3): { theta: number; phi: number } {
-  const r = v.length() || 1;
-  const theta = Math.acos(Math.min(1, Math.max(-1, v.y / r)));
-  const phi = Math.atan2(v.z, v.x);
-  return { theta, phi };
-}
-
-const scratch: PathSample = {
-  position: new Vector3(),
-  tangent: new Vector3(),
-  normal: new Vector3(),
-  binormal: new Vector3(),
-  s: 0,
-  flightRadius: 0,
-  trackRadius: 0,
-  groundRadius: 0,
-  elevation: 0,
-  inTunnel: false,
-  inCutting: false,
-};
-
-export function getSampleAt(path: FlightPath, s: number, out?: PathSample): PathSample {
-  const samples = path.samples;
-  const dist = wrap01(s, path.totalLength);
-  let lo = 0;
-  let hi = samples.length - 1;
-  while (lo < hi - 1) {
-    const mid = (lo + hi) >> 1;
-    if (samples[mid].s <= dist) lo = mid;
-    else hi = mid;
-  }
-  const a = samples[lo];
-  const b = samples[hi];
-  const span = Math.max(1e-8, b.s - a.s);
-  const k = (dist - a.s) / span;
-  return lerpSample(a, b, k, out ?? freshSample());
-}
-
-export function scratchSample(): PathSample {
-  return scratch;
-}
-
-function freshSample(): PathSample {
-  return {
-    position: new Vector3(),
-    tangent: new Vector3(),
-    normal: new Vector3(),
-    binormal: new Vector3(),
-    s: 0,
-    flightRadius: 0,
-    trackRadius: 0,
-    groundRadius: 0,
-    elevation: 0,
-    inTunnel: false,
-    inCutting: false,
-  };
-}
-
-function lerpSample(a: PathSample, b: PathSample, k: number, out: PathSample): PathSample {
-  out.position.copy(a.position).lerp(b.position, k);
-  out.tangent.copy(a.tangent).lerp(b.tangent, k).normalize();
-  const frame = orthonormalFrame(out.position, out.tangent, a.binormal);
-  out.tangent.copy(frame.tangent);
-  out.normal.copy(frame.normal);
-  out.binormal.copy(frame.binormal);
-  out.s = a.s + (b.s - a.s) * k;
-  out.flightRadius = a.flightRadius + (b.flightRadius - a.flightRadius) * k;
-  out.trackRadius = out.flightRadius;
-  out.groundRadius = a.groundRadius + (b.groundRadius - a.groundRadius) * k;
-  out.elevation = a.elevation + (b.elevation - a.elevation) * k;
-  out.inTunnel = k < 0.5 ? a.inTunnel : b.inTunnel;
-  out.inCutting = a.inCutting || b.inCutting;
-  return out;
-}
-
-export function framesAlong(path: FlightPath, distances: number[]): PathSample[] {
-  return distances.map((s) => getSampleAt(path, s));
+  return best;
 }

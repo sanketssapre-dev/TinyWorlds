@@ -33,7 +33,11 @@ export function heightOffset(theta: number, phi: number): number {
 
   h -= blob(theta, phi, SITES.lake.theta, SITES.lake.phi, 0.25, 5.0);
   h -= blob(theta, phi, SITES.lake2.theta, SITES.lake2.phi, 0.16, 3.6);
-  h -= blob(theta, phi, SITES.pool.theta, SITES.pool.phi, 0.1, 2.4);
+  // The pond's bowl has to be deeper and tighter than the lakes' relative to
+  // its width: it sits on the main lake's outer slope, so terrain in that
+  // direction falls away at roughly the same rate a shallow carve rises. A
+  // deep, narrow bowl out-rises the slope and actually holds water.
+  h -= blob(theta, phi, SITES.pool.theta, SITES.pool.phi, 0.09, 4.2);
 
   h += blob(theta, phi, SITES.village.theta, SITES.village.phi, 0.16, 0.85);
   h += blob(theta, phi, SITES.ancientTree.theta, SITES.ancientTree.phi, 0.14, 0.7);

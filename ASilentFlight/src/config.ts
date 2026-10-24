@@ -55,7 +55,7 @@ export const PLANETARY_RING = {
   bandWidths: [4, 5, 4],
   asteroidCounts: [300, 380, 290],
   asteroidSizeRatioRange: [0.03, 0.08] as const,
-  asteroidGlowIntensity: 0.22,
+  asteroidGlowIntensity: 0.44,
   pointLodSize: 1.5,
   pointLodOpacity: 0.92,
   pointLodFadeStart: 220,

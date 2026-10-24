@@ -17,10 +17,19 @@ export const ATMOSPHERE = {
   fadeEnd: 160,
 } as const;
 
+/** The least clearance the world ever allows, in world units. */
+const MIN_CLEARANCE = 3.4;
+
 export const FLIGHT = {
   /** Height above the smoothed hills, in world units. */
   cruise: 6.4,
-  minClearance: 3.4,
+  minClearance: MIN_CLEARANCE,
+  /**
+   * The most height the pilot may add on top of the terrain-following
+   * baseline: three times the minimum clearance level. The dynamic height is
+   * always the floor; this is only ever gained above it.
+   */
+  maxClimb: MIN_CLEARANCE * 3,
   /** A calm cruise. One circuit takes a few quiet minutes. */
   speed: 1.8,
 } as const;

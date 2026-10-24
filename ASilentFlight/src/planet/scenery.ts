@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   ConeGeometry,
   CylinderGeometry,
   DynamicDrawUsage,
@@ -30,6 +31,8 @@ import { FlightPath } from "../flight/path";
 import { SITES } from "./features";
 import { heightOffset, slopeMagnitude, surfaceRadius } from "./height";
 import { PlanetSurface } from "./surface";
+import { thinCrowdedTrees } from "./treeSpacing";
+import type { TreeSite } from "./treeSpacing";
 
 const dummy = new Object3D();
 const seatPos = new Vector3();
@@ -56,6 +59,8 @@ const GROVES: { theta: number; phi: number; reach: number; count: number; lakesi
 const GROVE_TREE_SCALE = 2;
 // Increasing each existing grove's radius by sqrt(2) doubles its nominal footprint.
 const GROVE_COVERAGE_SCALE = Math.SQRT2;
+/** Trunk thickness as a fraction of the original: 10% off the diameter. */
+const TRUNK_DIAMETER_SCALE = 0.9;
 const WOODLAND_CLUSTER_SIZE = 4;
 const WOODLAND_CLUSTER_SPACING = 0.95;
 const VILLAGE_SLICE_COUNT = 6;
@@ -381,26 +386,15 @@ function treeKind(a: number, b: number, c: number, salt: number): number {
   return 2;
 }
 
-function createTrees(path: FlightPath): Group {
-  const group = new Group();
-  const trunkGeo = new CylinderGeometry(0.048, 0.102, 0.58, 6);
-  trunkGeo.translate(0, 0.29, 0);
-  const birchTrunkGeo = new CylinderGeometry(0.03, 0.048, 0.7, 6);
-  birchTrunkGeo.translate(0, 0.35, 0);
-  const canopyGeo = new SphereGeometry(0.42, 7, 6);
-  const pineGeo = new ConeGeometry(0.29, 1.08, 7);
-  const trunkMat = new MeshStandardMaterial({ color: "#4a3428", roughness: 0.92 });
-  const birchTrunkMat = new MeshStandardMaterial({ color: "#cbb89a", roughness: 0.84 });
-  const leafA = new MeshStandardMaterial({ color: "#2f5a38", roughness: 0.78 });
-  const leafB = new MeshStandardMaterial({ color: "#3f6b3c", roughness: 0.8 });
-  const leafC = new MeshStandardMaterial({ color: "#5a7040", roughness: 0.82 });
-  const boughMat = new MeshStandardMaterial({ color: "#2a4e36", roughness: 0.8 });
-  const pineMat = new MeshStandardMaterial({ color: "#234a36", roughness: 0.76 });
-  const birchLeaf = new MeshStandardMaterial({ color: "#8aa86e", roughness: 0.78 });
-  for (const mat of [leafA, leafB, leafC, boughMat, pineMat, birchLeaf]) swayFoliage(mat);
+/**
+ * Where every tree in the world is planted, before any of them are nudged.
+ *
+ * Kept apart from the meshes so the planting can be reasoned about — and
+ * measured — on its own.
+ */
+export function planTreeSites(path: FlightPath): TreeSite[] {
+  const sites: TreeSite[] = [];
 
-  const candidates: { theta: number; phi: number; kind: number; scale: number; snowy: boolean }[] =
-    [];
   for (const grove of [...GROVES, ...LAKESIDE_GROVES]) {
     for (let i = 0; i < grove.count * GROVE_TREE_SCALE; i++) {
       const ang = Math.sqrt(hash01(i, grove.theta, 1, 3)) * grove.reach * GROVE_COVERAGE_SCALE;
@@ -410,10 +404,11 @@ function createTrees(path: FlightPath): Group {
       if (!canPlantTree(theta, phi, path, grove.lakeside)) continue;
       const snowy = heightOffset(theta, phi) > 5.7;
       const kind = snowy ? 1 : treeKind(theta, phi, i, 8);
-      const scale = 0.95 + hash01(theta, phi, i, 12) * 1.15;
-      candidates.push({ theta, phi, kind, scale, snowy });
+      const scale = (0.95 + hash01(theta, phi, i, 12) * 1.15) * 1.3;
+      sites.push({ theta, phi, kind, scale, snowy });
     }
   }
+
   const n = 420;
   const golden = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < n; i++) {
@@ -427,8 +422,7 @@ function createTrees(path: FlightPath): Group {
     const wood =
       fbm3(x * 2.4, y * 2.4, z * 2.4, 3, 2, 0.5, 29) > 0.22 && hash01(x, y, z, 4) > 0.55;
     if (!wood || !canPlantTree(theta, az, path)) continue;
-    const cluster: { theta: number; phi: number; kind: number; scale: number; snowy: boolean }[] =
-      [];
+    const cluster: TreeSite[] = [];
     for (let clusterIndex = 0; clusterIndex < WOODLAND_CLUSTER_SIZE; clusterIndex++) {
       const angle = (clusterIndex * Math.PI * 2) / (WOODLAND_CLUSTER_SIZE - 1);
       const distance =
@@ -441,10 +435,10 @@ function createTrees(path: FlightPath): Group {
       if (!canPlantTree(clusterTheta, clusterPhi, path)) continue;
       const snowy = heightOffset(clusterTheta, clusterPhi) > 5.7;
       const kind = snowy ? 1 : treeKind(x, y, z, 8 + clusterIndex);
-      const scale = 0.75 + hash01(x, y, z, 12 + clusterIndex) * 0.7;
+      const scale = (0.75 + hash01(x, y, z, 12 + clusterIndex) * 0.7) * 1.3;
       cluster.push({ theta: clusterTheta, phi: clusterPhi, kind, scale, snowy });
     }
-    if (cluster.length >= 3) candidates.push(...cluster);
+    if (cluster.length >= 3) sites.push(...cluster);
   }
 
   for (const peak of [SITES.peakNorth, SITES.peakWest, SITES.peakEast]) {
@@ -453,21 +447,56 @@ function createTrees(path: FlightPath): Group {
       for (let i = 0; i < 8 && planted < 5; i++) {
         const angle = (i / 8) * Math.PI * 2 + radius * 9;
         const theta = peak.theta + Math.cos(angle) * radius;
-        const phi =
-          peak.phi + (Math.sin(angle) * radius) / Math.max(0.35, Math.sin(peak.theta));
+        const phi = peak.phi + (Math.sin(angle) * radius) / Math.max(0.35, Math.sin(peak.theta));
         const height = heightOffset(theta, phi);
         if (height <= 5.7 || height > 8.8 || !canPlantTree(theta, phi, path)) continue;
-        candidates.push({
+        sites.push({
           theta,
           phi,
           kind: 1,
-          scale: 0.85 + hash01(theta, phi, i, 71) * 0.45,
+          scale: (0.85 + hash01(theta, phi, i, 71) * 0.45) * 1.3,
           snowy: true,
         });
         planted++;
       }
     }
   }
+
+  return sites;
+}
+
+function createTrees(path: FlightPath): Group {
+  const group = new Group();
+  const trunkGeo = new CylinderGeometry(
+    0.048 * TRUNK_DIAMETER_SCALE,
+    0.102 * TRUNK_DIAMETER_SCALE,
+    0.58,
+    6,
+  );
+  trunkGeo.translate(0, 0.29, 0);
+  const birchTrunkGeo = new CylinderGeometry(
+    0.03 * TRUNK_DIAMETER_SCALE,
+    0.048 * TRUNK_DIAMETER_SCALE,
+    0.7,
+    6,
+  );
+  birchTrunkGeo.translate(0, 0.35, 0);
+  const canopyGeo = new SphereGeometry(0.42, 7, 6);
+  const pineGeo = new ConeGeometry(0.29, 1.08, 7);
+  const trunkMat = new MeshStandardMaterial({ color: "#4a3428", roughness: 0.92 });
+  const birchTrunkMat = new MeshStandardMaterial({ color: "#cbb89a", roughness: 0.84 });
+  const leafA = new MeshStandardMaterial({ color: "#2f5a38", roughness: 0.78 });
+  const leafB = new MeshStandardMaterial({ color: "#3f6b3c", roughness: 0.8 });
+  const leafC = new MeshStandardMaterial({ color: "#5a7040", roughness: 0.82 });
+  const boughMat = new MeshStandardMaterial({ color: "#2a4e36", roughness: 0.8 });
+  const pineMat = new MeshStandardMaterial({ color: "#234a36", roughness: 0.76 });
+  const birchLeaf = new MeshStandardMaterial({ color: "#8aa86e", roughness: 0.78 });
+  for (const mat of [leafA, leafB, leafC, boughMat, pineMat, birchLeaf]) swayFoliage(mat);
+
+  // Sites are planned first, then the trees sitting practically on top of one
+  // another are dropped. Everything else is planted exactly where it was
+  // planned, so each grove keeps its shape.
+  const candidates = thinCrowdedTrees(planTreeSites(path));
 
   const trunks = new InstancedMesh(trunkGeo, trunkMat, candidates.length);
   const birchTrunks = new InstancedMesh(birchTrunkGeo, birchTrunkMat, candidates.length);
@@ -531,41 +560,41 @@ function createTrees(path: FlightPath): Group {
     const s = c.scale;
     const yaw = hash01(c.theta, c.phi, 4, 17) * Math.PI * 2;
     if (c.kind === 2) {
-      plantMatrix(pos, up, s * 0.85, s, 0, 0, 0);
+      plantMatrix(pos, up, s * 1.105, s * 1.3, 0, 0, 0);
       birchTrunks.setMatrixAt(bt++, dummy.matrix);
-      plantMatrix(pos, up, s * 0.72, s * 0.72, 0.62 * s, 0, 0);
+      plantMatrix(pos, up, s * 0.936, s * 0.936, 0.62 * s * 1.3, 0, 0);
       birchLeaves.setMatrixAt(bl++, dummy.matrix);
       continue;
     }
     if (c.kind === 1) {
       const trunkHeight = 0.95 + hash01(c.theta, c.phi, 3, 23) * 0.35;
-      plantMatrix(pos, up, s * 0.7, s * trunkHeight, 0, 0, 0);
+      plantMatrix(pos, up, s * 0.91, s * trunkHeight * 1.3, 0, 0, 0);
       trunks.setMatrixAt(t++, dummy.matrix);
-      plantMatrix(pos, up, s * 0.9, s * 0.9, 0.92 * s, 0, 0);
+      plantMatrix(pos, up, s * 1.17, s * 0.9 * 1.3, 0.92 * s * 1.3, 0, 0);
       pines.setMatrixAt(p++, dummy.matrix);
       if (c.snowy) {
-        plantMatrix(pos, up, s * 0.48, s * 0.42, 1.24 * s, 0, 0);
+        plantMatrix(pos, up, s * 0.624, s * 0.42 * 1.3, 1.24 * s * 1.3, 0, 0);
         snowCaps.setMatrixAt(snow++, dummy.matrix);
       }
       continue;
     }
-    plantMatrix(pos, up, s, s, 0, 0, 0);
+    plantMatrix(pos, up, s * 1.3, s * 1.3, 0, 0, 0);
     trunks.setMatrixAt(t++, dummy.matrix);
     const goldTree = hash01(c.theta, c.phi, 1, 21) > 0.82;
     const high = hash01(c.theta, c.phi, 2, 22) > 0.5;
-    const crown = s * (high ? 0.92 : 1);
-    plantMatrix(pos, up, crown, crown, (high ? 0.66 : 0.54) * s, 0, 0);
+    const crown = s * (high ? 0.92 : 1) * 1.3;
+    plantMatrix(pos, up, crown, crown, (high ? 0.66 : 0.54) * s * 1.3, 0, 0);
     if (goldTree) gold.setMatrixAt(g++, dummy.matrix);
     else if (high) canopy2.setMatrixAt(c2++, dummy.matrix);
     else canopy1.setMatrixAt(c1++, dummy.matrix);
     plantMatrix(
       pos,
       up,
-      s * 0.55,
-      s * 0.55,
-      0.34 * s,
-      Math.cos(yaw) * 0.24 * s,
-      Math.sin(yaw) * 0.16 * s,
+      s * 0.715,
+      s * 0.715,
+      0.34 * s * 1.3,
+      Math.cos(yaw) * 0.24 * s * 1.3,
+      Math.sin(yaw) * 0.16 * s * 1.3,
     );
     boughs.setMatrixAt(bough++, dummy.matrix);
   }
@@ -1721,12 +1750,37 @@ function createCastle(): Group {
 }
 
 function createBlueFlagMaterial(width: number, wave: number): MeshStandardMaterial {
+  const canvas = (() => {
+    if (typeof document !== 'undefined') {
+      const el = document.createElement('canvas');
+      el.width = 512;
+      el.height = 256;
+      const ctx = el.getContext('2d')!;
+      ctx.font = 'bold 96px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 6;
+      ctx.shadowColor = 'rgba(255, 255, 255, 0.4)';
+      ctx.shadowBlur = 12;
+      ctx.fillText('SSS', 256, 128);
+      ctx.strokeText('SSS', 256, 128);
+      ctx.shadowBlur = 0;
+      return el;
+    }
+    return null;
+  })();
+  const map = canvas ? new CanvasTexture(canvas) : null;
+  if (map) map.anisotropy = 4;
+
   const flagMat = new MeshStandardMaterial({
-    color: "#2f74e0",
-    emissive: "#1d4e9e",
+    color: '#2f74e0',
+    emissive: '#1d4e9e',
     emissiveIntensity: 0.2,
     roughness: 0.5,
     side: DoubleSide,
+    map,
   });
   flagMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sceneryTime;

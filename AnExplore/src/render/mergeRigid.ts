@@ -2,6 +2,19 @@ import { BufferGeometry, Group, Mesh } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 /**
+ * Fold a set of geometries into one, leaving each part's baked transform in its
+ * vertices. Used to build a single tree silhouette out of several primitives,
+ * so the whole tree still costs one instance and one draw.
+ */
+export function mergeGeometryParts(parts: BufferGeometry[]): BufferGeometry {
+  const pieces = parts.map((geometry) => geometry.clone());
+  const merged = mergeGeometries(pieces, false);
+  for (const geometry of pieces) geometry.dispose();
+  if (!merged) throw new Error("Could not merge geometry parts.");
+  return merged;
+}
+
+/**
  * Fold rigid meshes that share a material and the same shadow flags into one
  * draw. Local transforms are baked. Source geometries are not disposed, so
  * shared hull and body primitives stay usable.

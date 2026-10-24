@@ -19,21 +19,69 @@ import {
   Uniform,
   Vector3,
 } from "three";
-import { FLIGHT, SEARCH_LIGHT } from "../config";
-import { wrap01 } from "../math/sphere";
+import { FLIGHT, PLANET, SEARCH_LIGHT } from "../config";
+import { cartToSph, wrap01 } from "../math/sphere";
+import { heightOffset } from "../planet/height";
 import { mergeRigidMeshes } from "../render/mergeRigid";
-import { FlightPath, getSampleAt, scratchSample } from "./path";
+import { getSampleAt, nearestSampleDistance, scratchSample } from "./path";
+import type { FlightPath, PathSample } from "./path";
 
 const basis = new Matrix4();
-const right = new Vector3();
 const targetQuat = new Quaternion();
-const localBank = new Quaternion();
-const bankAxis = new Vector3(0, 0, 1);
-const currentFwd = new Vector3();
-const turnAxis = new Vector3();
 const sunDirection = new Vector3(90, 55, 35).normalize();
 const groundNormal = new Vector3();
-const TURN = 0.72;
+
+/** How briskly the nose comes round. Slow enough to feel deliberate. */
+const MAX_TURN_RATE = 0.32; // rad/s
+/** How far the wings lean into a turn — about 24 degrees. */
+const MAX_BANK = 0.42; // rad
+const STEER_SMOOTHING = 2.6; // 1/s
+const BANK_SMOOTHING = 2.2; // 1/s
+/** How quickly the calm cruise reference settles onto new terrain. */
+const GROUND_SMOOTHING = 0.2; // 1/s
+/** How quickly the clearance envelope follows the ground ahead. */
+const CEILING_SMOOTHING = 4; // 1/s
+/** Terrain is sampled this far ahead of the nose, so the climb starts early. */
+const CLIMB_LOOKAHEAD = 9;
+const CLIMB_SAMPLES = 10;
+/** How loosely the soft maximum blends those samples, in world units. */
+const CLIMB_SOFTNESS = 6;
+/** How fast the pilot's height request takes effect. Deliberately slow. */
+const CLIMB_RATE = 0.8; // units/s
+/** How gently the height request eases in and out. */
+const CLIMB_SMOOTHING = 2.2; // 1/s
+/** How far the nose lifts at a full-rate climb — about 10 degrees. */
+const MAX_PITCH = 0.18; // rad
+/** Over how much remaining height the nose levels off near a limit. */
+const PITCH_FADE = 1; // units
+/** How hard the autopilot answers a heading error. */
+const HEADING_GAIN = 1.6;
+/** How hard it answers standing off the route to one side, once close. */
+const LATERAL_GAIN = 0.12;
+/** How far ahead of the craft it aims while tracking the route. */
+const TRACK_LOOKAHEAD = 4;
+/** Beyond this distance from the route, joining it matters more than tracking it. */
+const JOIN_RANGE = 25;
+/** How far ahead the route's bend is read, to turn into it rather than after it. */
+const BEND_LOOKAHEAD = 8;
+/** How far a height difference may build before it is corrected. */
+const CLIMB_GAIN = 2;
+
+/** Who is flying the craft: the route, or the pilot. */
+export type FlightMode = "autopilot" | "manual";
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(high, value));
+}
+
+/** Project a vector onto the tangent plane at `radial`, as a unit vector. */
+function tangentPlane(v: Vector3, radial: Vector3): Vector3 {
+  const out = v.clone();
+  out.addScaledVector(radial, -out.dot(radial));
+  if (out.lengthSq() < 1e-12) out.copy(new Vector3(0, 1, 0).cross(radial));
+  out.normalize();
+  return out;
+}
 
 const cream = new MeshStandardMaterial({ color: "#e6d3ae", roughness: 0.55 });
 const wing = new MeshStandardMaterial({ color: "#7a3030", roughness: 0.5 });
@@ -61,14 +109,34 @@ const searchLightLens = new MeshStandardMaterial({
 const propWood = makePropellerWood();
 
 export type FlightState = {
-  distance: number;
+  /** Unit vector from the planet centre to the craft: where it is on the sphere. */
+  dir: Vector3;
+  /** Unit tangent at `dir`: the direction the nose points. */
+  heading: Vector3;
+  /** Smoothed yaw rate. Positive means steering right. */
+  turnRate: number;
+  /** Smoothed roll. Positive means banking right. */
+  bankAngle: number;
+  /** Ride height above PLANET.radius, following terrain within graceful bounds. */
+  ride: number;
+  /** Slowly-tracked terrain height beneath the craft: the calm cruise reference. */
+  ground: number;
+  /** Smoothed upper bound on the ground ahead: the clearance reference. */
+  ceiling: number;
+  /** Smoothed rate of the pilot's height request. */
+  climbRate: number;
+  /** Height the pilot has added on top of the terrain-following baseline. */
+  climb: number;
   speed: number;
+  distance: number;
   craft: Group;
   propeller: Group;
   searchLight: GroundSearchLight;
   wingLights: MeshStandardMaterial[];
   spin: number;
   posed: boolean;
+  /** Who is flying: the route, or the pilot. */
+  mode: FlightMode;
 };
 
 export type GroundSearchLight = {
@@ -80,13 +148,34 @@ export type GroundSearchLight = {
 const searchLightLocalPosition = new Vector3(0, -0.2, -0.12);
 const searchLightLocalDirection = new Vector3(0, -11.8, 1.62).normalize();
 
-export function createFlight(): FlightState {
+export function createFlight(start: PathSample): FlightState {
   const craft = buildBiplane();
   const propeller = craft.getObjectByName("propeller") as Group;
   const wingLights = craft.userData.wingLights as MeshStandardMaterial[];
-  return {
-    distance: 12,
+
+  const dir = start.position.clone().normalize();
+  const heading = start.tangent.clone();
+  heading.addScaledVector(dir, -heading.dot(dir));
+  if (heading.lengthSq() < 1e-12) heading.copy(new Vector3(0, 1, 0).cross(dir));
+  heading.normalize();
+
+  // Start already settled on the ground beneath and the ground ahead, so there
+  // is no first-frame lurch in altitude.
+  const ground = groundAt(dir);
+  const ceiling = highestGroundAhead(dir, heading);
+
+  const state: FlightState = {
+    dir,
+    heading,
+    turnRate: 0,
+    bankAngle: 0,
+    ride: Math.max(ground + FLIGHT.cruise, ceiling + FLIGHT.minClearance),
+    ground,
+    ceiling,
+    climbRate: 0,
+    climb: 0,
     speed: FLIGHT.speed,
+    distance: 0,
     craft,
     propeller,
     searchLight: {
@@ -97,36 +186,232 @@ export function createFlight(): FlightState {
     wingLights,
     spin: 0,
     posed: false,
+    mode: "autopilot",
   };
+
+  applyPose(state, 0);
+  return state;
 }
 
-export function updateFlight(state: FlightState, path: FlightPath, dt: number): void {
-  state.distance = wrap01(state.distance + state.speed * dt, path.totalLength);
+/**
+ * Fly the craft for one step.
+ *
+ * `turnInput` is -1 for left, +1 for right. `climbInput` is +1 for up, -1 for
+ * down, and only ever adds height on top of the terrain-following baseline.
+ *
+ * The craft's own heading is the only thing steering touches: the route is
+ * traced from it afterwards, so the nose always leads and the path follows.
+ */
+export function updateFlight(
+  state: FlightState,
+  dt: number,
+  turnInput = 0,
+  climbInput = 0,
+): void {
+  const radial = state.dir;
+
+  // Ease the yaw rate toward what the keys ask for, so the nose swings over
+  // rather than snapping.
+  const targetTurnRate = turnInput * MAX_TURN_RATE;
+  state.turnRate += (targetTurnRate - state.turnRate) * (1 - Math.exp(-STEER_SMOOTHING * dt));
+
+  // A positive rotation about the local up axis swings the nose to the LEFT,
+  // so steering right is a negative rotation.
+  state.heading.applyAxisAngle(radial, -state.turnRate * dt);
+
+  // Lean the wings into the turn. A positive roll about the nose line drops the
+  // right wing, so banking right takes a positive angle.
+  const targetBank = turnInput * MAX_BANK;
+  state.bankAngle += (targetBank - state.bankAngle) * (1 - Math.exp(-BANK_SMOOTHING * dt));
+
+  // Fly forward along the heading. Turning both the position and the heading
+  // about the same axis keeps them exactly square, so nothing drifts.
+  const travel = new Vector3().crossVectors(radial, state.heading).normalize();
+  const step = (state.speed * dt) / (PLANET.radius + state.ride);
+  radial.applyAxisAngle(travel, step);
+  state.heading.applyAxisAngle(travel, step);
+
+  // Ride the terrain, between two smoothed references: a calm cruise above the
+  // ground underfoot, and a clearance floor above the highest ground ahead.
+  // Both are smoothed, and the floor uses a soft maximum, so the ride never
+  // steps when the tallest thing ahead changes.
+  const under = groundAt(radial);
+  state.ground += (under - state.ground) * (1 - Math.exp(-GROUND_SMOOTHING * dt));
+  const envelope = highestGroundAhead(radial, state.heading);
+  state.ceiling += (envelope - state.ceiling) * (1 - Math.exp(-CEILING_SMOOTHING * dt));
+
+  // The pilot's own height request, layered on top of that baseline. It eases
+  // in and out so a tap or a release never jolts the craft, and it can only
+  // ever add height — the terrain-following figure stays the floor.
+  const wantedRate = climbInput * CLIMB_RATE;
+  state.climbRate += (wantedRate - state.climbRate) * (1 - Math.exp(-CLIMB_SMOOTHING * dt));
+  state.climb = Math.min(FLIGHT.maxClimb, Math.max(0, state.climb + state.climbRate * dt));
+
+  state.ride =
+    Math.max(state.ground + FLIGHT.cruise, state.ceiling + FLIGHT.minClearance) + state.climb;
+
+  state.distance += state.speed * dt;
   state.spin += dt * 22;
-  pose(state, path, dt);
+  applyPose(state, dt);
   state.propeller.rotation.z = state.spin;
   updateWingLights(state.wingLights, state.spin / 22);
 }
 
-function pose(state: FlightState, path: FlightPath, dt: number): void {
-  const f = getSampleAt(path, state.distance, scratchSample());
-  state.craft.position.copy(f.position);
-  right.copy(f.binormal).negate();
-  basis.makeBasis(right, f.normal, f.tangent);
-  targetQuat.setFromRotationMatrix(basis);
+/** Terrain height, in world units above PLANET.radius, at a unit direction. */
+function groundAt(dir: Vector3): number {
+  const sph = cartToSph(dir);
+  return heightOffset(sph.theta, sph.phi);
+}
 
-  if (!state.posed) {
-    state.craft.quaternion.copy(targetQuat);
-    state.posed = true;
-  } else {
-    currentFwd.set(0, 0, 1).applyQuaternion(state.craft.quaternion);
-    turnAxis.crossVectors(currentFwd, f.tangent);
-    const turn = Math.max(-0.35, Math.min(0.35, turnAxis.dot(f.normal)));
-    localBank.setFromAxisAngle(bankAxis, -turn * 1.15);
-    targetQuat.multiply(localBank);
-    const k = 1 - Math.exp(-TURN * dt);
-    state.craft.quaternion.slerp(targetQuat, k);
+/**
+ * A smooth upper bound on the ground between here and CLIMB_LOOKAHEAD units
+ * along the heading.
+ *
+ * This is a *soft* maximum: a hard one steps whenever the tallest sample
+ * changes, and that step is what makes an altitude profile jink. The soft form
+ * is always at or above the true maximum, so it is still a safe clearance
+ * reference — it just arrives smoothly.
+ */
+function highestGroundAhead(dir: Vector3, heading: Vector3): number {
+  const axis = new Vector3().crossVectors(dir, heading).normalize();
+  const probe = new Vector3();
+  const perUnit = 1 / (PLANET.radius + PLANET.maxHeight + FLIGHT.cruise);
+
+  const samples: number[] = [groundAt(dir)];
+  for (let i = 1; i <= CLIMB_SAMPLES; i++) {
+    const arc = (i / CLIMB_SAMPLES) * CLIMB_LOOKAHEAD;
+    probe.copy(dir).applyAxisAngle(axis, arc * perUnit);
+    samples.push(groundAt(probe));
   }
+
+  const peak = Math.max(...samples);
+  let sum = 0;
+  for (const ground of samples) sum += Math.exp(CLIMB_SOFTNESS * (ground - peak));
+  return peak + Math.log(sum) / CLIMB_SOFTNESS;
+}
+
+/** 0 at a limit, 1 once there is room to spare. Smooth, so nothing snaps. */
+function roomFactor(room: number): number {
+  const t = Math.max(0, Math.min(1, room));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Hand the craft to the route.
+ *
+ * Nothing is reset: the craft keeps its position, heading and height, and the
+ * autopilot steers it onto the course from there. That is what makes the
+ * handover feel like the craft flying rather than being carried.
+ */
+export function enterAutopilot(state: FlightState): void {
+  state.mode = "autopilot";
+}
+
+/**
+ * Fly the craft along the route by steering it, the way a pilot would.
+ *
+ * The craft is never placed on the route. A heading error and a cross-track
+ * error become the same `turnInput` the arrow keys produce, and the ordinary
+ * flight step does the rest — so the rudder is visibly working, the craft leans
+ * into its own turns, and the camera follows the craft rather than a curve.
+ */
+export function updateAutopilot(state: FlightState, path: FlightPath, dt: number): void {
+  const nearest = nearestSampleDistance(path, state.craft.position);
+  const here = getSampleAt(path, nearest, scratchSample());
+
+  // How far off the route the craft is. Far away, the only thing that matters
+  // is getting back to it; close in, it is worth hugging the line. Aiming at
+  // the route's nearest point is what stops a distant craft from turning in
+  // circles — a turn input pinned at full deflection flies a circle, and a
+  // circle never arrives anywhere.
+  const distance = state.craft.position.distanceTo(here.position);
+  const tracking = clamp(1 - distance / JOIN_RANGE, 0, 1);
+
+  const ahead = getSampleAt(path, nearest + TRACK_LOOKAHEAD * tracking, scratchSample());
+  const wanted = tangentPlane(
+    new Vector3().subVectors(ahead.position, state.craft.position),
+    state.dir,
+  );
+
+  // Positive when the route lies to the craft's right — the same sign a
+  // positive turnInput steers.
+  const side = new Vector3().crossVectors(state.dir, state.heading).normalize();
+  const headingError = -new Vector3().subVectors(wanted, state.heading).dot(side);
+
+  // Standing off to one side. Scaled by `tracking` so it only acts once the
+  // craft is close: at a distance the join above has to be free to use the
+  // whole turn budget, and a saturated lateral term is what made a distant
+  // craft circle instead of arriving.
+  const lateral = new Vector3().subVectors(state.craft.position, here.position).dot(here.binormal);
+
+  // Feedforward: the route's own bend, read a little way ahead, so the craft
+  // turns into a curve instead of discovering it and cutting the corner.
+  const bendSample = getSampleAt(path, nearest + BEND_LOOKAHEAD, scratchSample());
+  const bendCross = new Vector3().crossVectors(here.tangent, bendSample.tangent);
+  const bend = Math.atan2(bendCross.dot(here.normal), here.tangent.dot(bendSample.tangent));
+  const bendInput = clamp(-(bend * state.speed) / (BEND_LOOKAHEAD * MAX_TURN_RATE), -1, 1);
+
+  const turnInput = clamp(
+    headingError * HEADING_GAIN - lateral * LATERAL_GAIN * tracking + bendInput * tracking,
+    -1,
+    1,
+  );
+  const climbInput = clamp((here.elevation - state.ride) / CLIMB_GAIN, -1, 1);
+
+  updateFlight(state, dt, turnInput, climbInput);
+  state.distance = wrap01(state.distance, path.totalLength);
+}
+
+/**
+ * Take the craft back from the route.
+ *
+ * Nothing to undo: the craft was flying under its own power the whole time, so
+ * handing it back changes only who is steering.
+ */
+export function exitAutopilot(state: FlightState): void {
+  state.mode = "manual";
+}
+
+/**
+ * Put the craft where its own state says it is.
+ *
+ * Nothing here consults a pre-computed route: the craft is the source of truth
+ * and the route is traced from it, so the nose is never overruled by a curve.
+ */
+function applyPose(state: FlightState, dt: number): void {
+  const forward = state.heading.clone().normalize();
+  const up = state.dir.clone();
+
+  // Pitch: lift the nose into a climb and drop it into a descent, so a change
+  // of height actually reads. Rotating both the nose and the roof about the
+  // wing line keeps the frame square. The angle is a fraction of the true
+  // flight-path angle — enough to see, not enough to look like a stunt.
+  //
+  // It also levels off as the craft runs out of height to give, so holding the
+  // key at the ceiling does not leave it nose-up for ever.
+  const wanted = state.climbRate / CLIMB_RATE;
+  const room = wanted > 0 ? FLIGHT.maxClimb - state.climb : state.climb;
+  const lift = wanted * roomFactor(room / PITCH_FADE) * MAX_PITCH;
+  if (lift !== 0) {
+    const wing = new Vector3().crossVectors(forward, up).normalize();
+    forward.applyAxisAngle(wing, lift);
+    up.applyAxisAngle(wing, lift);
+  }
+
+  // Roll about the nose line.
+  up.applyAxisAngle(forward, state.bankAngle).normalize();
+
+  // Right-handed basis: for a model whose nose is +z and up is +y, the third
+  // axis is up x forward. (forward x up would be left-handed, and would hand
+  // setFromRotationMatrix a mirror instead of a rotation.)
+  const side = new Vector3().crossVectors(up, forward).normalize();
+
+  basis.makeBasis(side, up, forward);
+  targetQuat.setFromRotationMatrix(basis);
+  state.craft.quaternion.copy(targetQuat);
+  state.posed = true;
+
+  state.craft.position.copy(state.dir).multiplyScalar(PLANET.radius + state.ride);
   updateSearchLight(state, dt);
 }
 

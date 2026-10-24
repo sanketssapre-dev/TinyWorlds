@@ -9,11 +9,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      // AnExplore is the whole site. ASilentFlight and ASilentSail stay in the
+      // repo but are no longer built or published.
       input: {
         main: resolve(__dirname, "index.html"),
-        silentFlight: resolve(__dirname, "ASilentFlight/index.html"),
-        silentSail: resolve(__dirname, "ASilentSail/index.html"),
-        anExplore: resolve(__dirname, "AnExplore/index.html"),
       },
     },
   },

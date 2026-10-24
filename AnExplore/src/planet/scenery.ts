@@ -2,6 +2,7 @@ import {
   BoxGeometry,
   BufferGeometry,
   CanvasTexture,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   DynamicDrawUsage,
@@ -28,9 +29,12 @@ import { PLANET } from "../config";
 import { fbm3, hash01 } from "../math/noise";
 import { angularDistance, cartToSph, sphToCart } from "../math/sphere";
 import { FlightPath } from "../flight/path";
+import { mergeGeometryParts } from "../render/mergeRigid";
 import { SITES } from "./features";
 import { heightOffset, slopeMagnitude, surfaceRadius } from "./height";
 import { PlanetSurface } from "./surface";
+import { thinCrowdedTrees } from "./treeSpacing";
+import type { TreeSite } from "./treeSpacing";
 
 const dummy = new Object3D();
 const seatPos = new Vector3();
@@ -57,6 +61,8 @@ const GROVES: { theta: number; phi: number; reach: number; count: number; lakesi
 const GROVE_TREE_SCALE = 2;
 // Increasing each existing grove's radius by sqrt(2) doubles its nominal footprint.
 const GROVE_COVERAGE_SCALE = Math.SQRT2;
+/** Trunk thickness as a fraction of the original: 10% off the diameter. */
+const TRUNK_DIAMETER_SCALE = 0.9;
 const WOODLAND_CLUSTER_SIZE = 4;
 const WOODLAND_CLUSTER_SPACING = 0.95;
 const VILLAGE_SLICE_COUNT = 6;
@@ -247,6 +253,25 @@ function emptyLife(): LifeActors {
 
 let life = emptyLife();
 
+/**
+ * Roughness is a uniform, not an attribute, so it cannot vary per instance
+ * without touching the shader. The instance colour is already there and its
+ * green channel carries the same per-tree hash, so it is reused to bend the
+ * roughness a little — trees in a grove stop sharing one plastic finish.
+ *
+ * `USE_COLOR` is defined alongside `USE_INSTANCING_COLOR`, which is what makes
+ * `vColor` readable here.
+ */
+function bendRoughness(source: string): string {
+  return source.replace(
+    "#include <roughnessmap_fragment>",
+    `#include <roughnessmap_fragment>
+     #ifdef USE_COLOR
+       roughnessFactor *= 1.0 + (vColor.g - 1.0) * 0.6;
+     #endif`,
+  );
+}
+
 function swayFoliage(mat: MeshStandardMaterial): void {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sceneryTime;
@@ -259,6 +284,7 @@ function swayFoliage(mat: MeshStandardMaterial): void {
          transformed.x += sin(uTime * 0.9 + instanceMatrix[3].x) * tip * 0.08;
          transformed.z += cos(uTime * 0.7 + instanceMatrix[3].z) * tip * 0.08;`,
       );
+    shader.fragmentShader = bendRoughness(shader.fragmentShader);
   };
 }
 
@@ -382,26 +408,15 @@ function treeKind(a: number, b: number, c: number, salt: number): number {
   return 2;
 }
 
-function createTrees(path: FlightPath): Group {
-  const group = new Group();
-  const trunkGeo = new CylinderGeometry(0.048, 0.102, 0.58, 6);
-  trunkGeo.translate(0, 0.29, 0);
-  const birchTrunkGeo = new CylinderGeometry(0.03, 0.048, 0.7, 6);
-  birchTrunkGeo.translate(0, 0.35, 0);
-  const canopyGeo = new SphereGeometry(0.42, 7, 6);
-  const pineGeo = new ConeGeometry(0.29, 1.08, 7);
-  const trunkMat = new MeshStandardMaterial({ color: "#4a3428", roughness: 0.92 });
-  const birchTrunkMat = new MeshStandardMaterial({ color: "#cbb89a", roughness: 0.84 });
-  const leafA = new MeshStandardMaterial({ color: "#2f5a38", roughness: 0.78 });
-  const leafB = new MeshStandardMaterial({ color: "#3f6b3c", roughness: 0.8 });
-  const leafC = new MeshStandardMaterial({ color: "#5a7040", roughness: 0.82 });
-  const boughMat = new MeshStandardMaterial({ color: "#2a4e36", roughness: 0.8 });
-  const pineMat = new MeshStandardMaterial({ color: "#234a36", roughness: 0.76 });
-  const birchLeaf = new MeshStandardMaterial({ color: "#8aa86e", roughness: 0.78 });
-  for (const mat of [leafA, leafB, leafC, boughMat, pineMat, birchLeaf]) swayFoliage(mat);
+/**
+ * Where every tree in the world is planted, before any of them are nudged.
+ *
+ * Kept apart from the meshes so the planting can be reasoned about — and
+ * measured — on its own.
+ */
+export function planTreeSites(path: FlightPath): TreeSite[] {
+  const sites: TreeSite[] = [];
 
-  const candidates: { theta: number; phi: number; kind: number; scale: number; snowy: boolean }[] =
-    [];
   for (const grove of [...GROVES, ...LAKESIDE_GROVES]) {
     for (let i = 0; i < grove.count * GROVE_TREE_SCALE; i++) {
       const ang = Math.sqrt(hash01(i, grove.theta, 1, 3)) * grove.reach * GROVE_COVERAGE_SCALE;
@@ -412,9 +427,10 @@ function createTrees(path: FlightPath): Group {
       const snowy = heightOffset(theta, phi) > 5.7;
       const kind = snowy ? 1 : treeKind(theta, phi, i, 8);
       const scale = (0.95 + hash01(theta, phi, i, 12) * 1.15) * 1.3;
-      candidates.push({ theta, phi, kind, scale, snowy });
+      sites.push({ theta, phi, kind, scale, snowy });
     }
   }
+
   const n = 420;
   const golden = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < n; i++) {
@@ -428,8 +444,7 @@ function createTrees(path: FlightPath): Group {
     const wood =
       fbm3(x * 2.4, y * 2.4, z * 2.4, 3, 2, 0.5, 29) > 0.22 && hash01(x, y, z, 4) > 0.55;
     if (!wood || !canPlantTree(theta, az, path)) continue;
-    const cluster: { theta: number; phi: number; kind: number; scale: number; snowy: boolean }[] =
-      [];
+    const cluster: TreeSite[] = [];
     for (let clusterIndex = 0; clusterIndex < WOODLAND_CLUSTER_SIZE; clusterIndex++) {
       const angle = (clusterIndex * Math.PI * 2) / (WOODLAND_CLUSTER_SIZE - 1);
       const distance =
@@ -445,7 +460,7 @@ function createTrees(path: FlightPath): Group {
       const scale = (0.75 + hash01(x, y, z, 12 + clusterIndex) * 0.7) * 1.3;
       cluster.push({ theta: clusterTheta, phi: clusterPhi, kind, scale, snowy });
     }
-    if (cluster.length >= 3) candidates.push(...cluster);
+    if (cluster.length >= 3) sites.push(...cluster);
   }
 
   for (const peak of [SITES.peakNorth, SITES.peakWest, SITES.peakEast]) {
@@ -454,11 +469,10 @@ function createTrees(path: FlightPath): Group {
       for (let i = 0; i < 8 && planted < 5; i++) {
         const angle = (i / 8) * Math.PI * 2 + radius * 9;
         const theta = peak.theta + Math.cos(angle) * radius;
-        const phi =
-          peak.phi + (Math.sin(angle) * radius) / Math.max(0.35, Math.sin(peak.theta));
+        const phi = peak.phi + (Math.sin(angle) * radius) / Math.max(0.35, Math.sin(peak.theta));
         const height = heightOffset(theta, phi);
         if (height <= 5.7 || height > 8.8 || !canPlantTree(theta, phi, path)) continue;
-        candidates.push({
+        sites.push({
           theta,
           phi,
           kind: 1,
@@ -470,7 +484,201 @@ function createTrees(path: FlightPath): Group {
     }
   }
 
+  return sites;
+}
+
+/**
+ * Slight per-tree colour variation.
+ *
+ * Every tree in a grove shares one material, so a wood of two thousand of them
+ * reads as one tree stamped repeatedly. A few percent of per-instance
+ * variation — some crowns a touch yellower, some a touch bluer, some a shade
+ * darker — is what makes it read as a wood rather than a pattern, without
+ * moving the palette at all.
+ *
+ * An instance colour multiplies the material colour, so these hover around 1.
+ * The variation is keyed to where each instance sits, so it is stable: the same
+ * tree gets the same tint, and a grove keeps its character across loads.
+ */
+function tintInstances(mesh: InstancedMesh, salt: number, amount = 1): void {
+  const matrix = new Matrix4();
+  const position = new Vector3();
+  const tint = new Color();
+
+  for (let i = 0; i < mesh.count; i++) {
+    mesh.getMatrixAt(i, matrix);
+    position.setFromMatrixPosition(matrix);
+
+    const spread = (value: number) => (value - 0.5) * 2 * amount;
+    const red = 1 + spread(hash01(position.x, position.y, position.z, salt)) * 0.12;
+    const green = 1 + spread(hash01(position.x, position.y, position.z, salt + 1)) * 0.14;
+    const blue = 1 + spread(hash01(position.x, position.y, position.z, salt + 2)) * 0.1;
+    const light = 1 + spread(hash01(position.x, position.y, position.z, salt + 3)) * 0.06;
+
+    tint.setRGB(red * light, green * light, blue * light);
+    mesh.setColorAt(i, tint);
+  }
+
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
+/**
+ * A conifer built from stacked tiers rather than one cone.
+ *
+ * A single cone reads as a traffic cone at this scale. Eight overlapping tiers
+ * give the stepped silhouette, and each tier is carried past its own cone by a
+ * ring of branches drooping outward — a solid tier reads as a solid cone, and
+ * only the branches make it read as a tree.
+ *
+ * The envelope matches the cone it replaces, so every tree keeps the position,
+ * height and ride it was designed with.
+ */
+function buildPineGeometry(): BufferGeometry {
+  const tiers = 8;
+  const tierHeight = 0.26;
+  const spacing = 0.115;
+  const base = -0.54;
+  const branchesPerTier = 5;
+  const branchDrop = 0.38; // radians below horizontal
+  const reach = 0.3; // how far the lowest tier's branches reach
+
+  const parts: BufferGeometry[] = [];
+  for (let i = 0; i < tiers; i++) {
+    const taper = Math.pow(1 - i / tiers, 0.8);
+    const centre = base + i * spacing + tierHeight / 2;
+
+    // A smaller cone fills the middle of the tier...
+    const cone = new ConeGeometry(reach * taper * 0.7, tierHeight, 6);
+    cone.translate(0, centre, 0);
+    parts.push(cone);
+
+    // ...and the branches carry the silhouette out past it.
+    const branchLength = (reach * taper - 0.03) / Math.cos(branchDrop);
+    for (let b = 0; b < branchesPerTier; b++) {
+      const branch = new ConeGeometry(0.06 * taper + 0.012, branchLength, 5);
+      branch.translate(0, branchLength / 2, 0);
+      branch.rotateX(Math.PI / 2 + branchDrop);
+      branch.rotateY((b / branchesPerTier) * Math.PI * 2);
+      branch.translate(0, centre - tierHeight * 0.1, 0);
+      parts.push(branch);
+    }
+  }
+  return mergeGeometryParts(parts);
+}
+
+/**
+ * A broadleaf crown built from overlapping lobes rather than one ball.
+ *
+ * A single sphere reads as a lollipop. Six lobes of differing size and offset
+ * give the irregular, clumpy outline a real canopy has, while staying inside
+ * the envelope the sphere occupied so nothing moves.
+ */
+function buildCanopyGeometry(): BufferGeometry {
+  const lobes = [
+    { radius: 0.3, x: 0, y: 0.02, z: 0 },
+    { radius: 0.2, x: 0.02, y: 0.26, z: -0.02 },
+    { radius: 0.22, x: -0.2, y: -0.02, z: 0.1 },
+    { radius: 0.21, x: 0.21, y: -0.06, z: -0.08 },
+    { radius: 0.19, x: 0.04, y: 0.06, z: -0.22 },
+    { radius: 0.17, x: -0.06, y: -0.1, z: 0.24 },
+  ];
+  return mergeGeometryParts(
+    lobes.map((lobe) => {
+      const sphere = new SphereGeometry(lobe.radius, 6, 5);
+      sphere.translate(lobe.x, lobe.y, lobe.z);
+      return sphere;
+    }),
+  );
+}
+
+/**
+ * A trunk with a flared base and branches, rather than a bare cylinder.
+ *
+ * The flare is what stops a tree looking planted on a stick, and the branches
+ * carry the eye from trunk to crown.
+ */
+function buildTrunkGeometry(radiusTop: number, radiusBottom: number, height: number): BufferGeometry {
+  const parts: BufferGeometry[] = [];
+
+  const trunk = new CylinderGeometry(radiusTop, radiusBottom, height, 6);
+  trunk.translate(0, height / 2, 0);
+  parts.push(trunk);
+
+  const flare = new CylinderGeometry(radiusBottom, radiusBottom * 1.45, height * 0.18, 6);
+  flare.translate(0, height * 0.09, 0);
+  parts.push(flare);
+
+  for (const [yaw, tilt, lift] of [
+    [0.5, 0.85, 0.38],
+    [2.6, 0.75, 0.48],
+    [4.6, 0.95, 0.3],
+  ] as const) {
+    const branch = new CylinderGeometry(radiusTop * 0.5, radiusTop * 0.9, height * 0.62, 5);
+    branch.translate(0, height * 0.31, 0);
+    branch.rotateX(tilt);
+    branch.rotateY(yaw);
+    branch.translate(0, lift * height, 0);
+    parts.push(branch);
+  }
+
+  return mergeGeometryParts(parts);
+}
+
+/**
+ * A conifer trunk: one clean taper, with nothing sprouting from it.
+ *
+ * A pine carries its branches in its tiers, so branches on the trunk below the
+ * foliage read as a broadleaf that has been mislabelled.
+ */
+function buildPineTrunkGeometry(): BufferGeometry {
+  const trunk = new CylinderGeometry(
+    0.042 * TRUNK_DIAMETER_SCALE,
+    0.088 * TRUNK_DIAMETER_SCALE,
+    0.58,
+    6,
+  );
+  trunk.translate(0, 0.29, 0);
+  return trunk;
+}
+
+export function createTrees(path: FlightPath): Group {
+  const group = new Group();
+  const trunkGeo = buildTrunkGeometry(
+    0.048 * TRUNK_DIAMETER_SCALE,
+    0.102 * TRUNK_DIAMETER_SCALE,
+    0.58,
+  );
+  const birchTrunkGeo = buildTrunkGeometry(
+    0.03 * TRUNK_DIAMETER_SCALE,
+    0.048 * TRUNK_DIAMETER_SCALE,
+    0.7,
+  );
+  const pineTrunkGeo = buildPineTrunkGeometry();
+  const canopyGeo = buildCanopyGeometry();
+  const pineGeo = buildPineGeometry();
+  const trunkMat = new MeshStandardMaterial({ color: "#4a3428", roughness: 0.92 });
+  const birchTrunkMat = new MeshStandardMaterial({ color: "#cbb89a", roughness: 0.84 });
+  // Trunks do not sway, but they are tinted, so they take the same bend.
+  for (const mat of [trunkMat, birchTrunkMat]) {
+    mat.onBeforeCompile = (shader) => {
+      shader.fragmentShader = bendRoughness(shader.fragmentShader);
+    };
+  }
+  const leafA = new MeshStandardMaterial({ color: "#2f5a38", roughness: 0.78 });
+  const leafB = new MeshStandardMaterial({ color: "#3f6b3c", roughness: 0.8 });
+  const leafC = new MeshStandardMaterial({ color: "#5a7040", roughness: 0.82 });
+  const boughMat = new MeshStandardMaterial({ color: "#2a4e36", roughness: 0.8 });
+  const pineMat = new MeshStandardMaterial({ color: "#234a36", roughness: 0.76 });
+  const birchLeaf = new MeshStandardMaterial({ color: "#8aa86e", roughness: 0.78 });
+  for (const mat of [leafA, leafB, leafC, boughMat, pineMat, birchLeaf]) swayFoliage(mat);
+
+  // Sites are planned first, then the trees sitting practically on top of one
+  // another are dropped. Everything else is planted exactly where it was
+  // planned, so each grove keeps its shape.
+  const candidates = thinCrowdedTrees(planTreeSites(path));
+
   const trunks = new InstancedMesh(trunkGeo, trunkMat, candidates.length);
+  const pineTrunks = new InstancedMesh(pineTrunkGeo, trunkMat, candidates.length);
   const birchTrunks = new InstancedMesh(birchTrunkGeo, birchTrunkMat, candidates.length);
   const canopy1 = new InstancedMesh(canopyGeo, leafA, candidates.length);
   const canopy2 = new InstancedMesh(canopyGeo, leafB, candidates.length);
@@ -485,6 +693,7 @@ function createTrees(path: FlightPath): Group {
   const birchLeaves = new InstancedMesh(canopyGeo, birchLeaf, candidates.length);
   for (const m of [
     trunks,
+    pineTrunks,
     birchTrunks,
     canopy1,
     canopy2,
@@ -522,6 +731,7 @@ function createTrees(path: FlightPath): Group {
     c1 = 0,
     c2 = 0,
     p = 0,
+    pt = 0,
     snow = 0,
     g = 0,
     bough = 0,
@@ -541,7 +751,7 @@ function createTrees(path: FlightPath): Group {
     if (c.kind === 1) {
       const trunkHeight = 0.95 + hash01(c.theta, c.phi, 3, 23) * 0.35;
       plantMatrix(pos, up, s * 0.91, s * trunkHeight * 1.3, 0, 0, 0);
-      trunks.setMatrixAt(t++, dummy.matrix);
+      pineTrunks.setMatrixAt(pt++, dummy.matrix);
       plantMatrix(pos, up, s * 1.17, s * 0.9 * 1.3, 0.92 * s * 1.3, 0, 0);
       pines.setMatrixAt(p++, dummy.matrix);
       if (c.snowy) {
@@ -571,6 +781,7 @@ function createTrees(path: FlightPath): Group {
     boughs.setMatrixAt(bough++, dummy.matrix);
   }
   trunks.count = t;
+  pineTrunks.count = pt;
   birchTrunks.count = bt;
   canopy1.count = c1;
   canopy2.count = c2;
@@ -579,7 +790,20 @@ function createTrees(path: FlightPath): Group {
   snowCaps.count = snow;
   gold.count = g;
   birchLeaves.count = bl;
-  group.add(trunks, birchTrunks, canopy1, canopy2, boughs, pines, snowCaps, gold, birchLeaves);
+
+  // Slight per-tree variation, so a grove reads as a wood rather than one
+  // stamped tree repeated. Snow caps are left alone: tint would read as dirt.
+  tintInstances(canopy1, 11);
+  tintInstances(canopy2, 23);
+  tintInstances(gold, 37);
+  tintInstances(boughs, 41);
+  tintInstances(pines, 53);
+  tintInstances(birchLeaves, 67);
+  tintInstances(trunks, 71, 0.5);
+  tintInstances(pineTrunks, 73, 0.5);
+  tintInstances(birchTrunks, 83, 0.5);
+
+  group.add(trunks, pineTrunks, birchTrunks, canopy1, canopy2, boughs, pines, snowCaps, gold, birchLeaves);
 
   group.add(createAncientTree());
   return group;

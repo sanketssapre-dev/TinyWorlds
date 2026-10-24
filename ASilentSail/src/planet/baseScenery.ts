@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   ConeGeometry,
   CylinderGeometry,
   DynamicDrawUsage,
@@ -1721,12 +1722,37 @@ function createCastle(): Group {
 }
 
 function createBlueFlagMaterial(width: number, wave: number): MeshStandardMaterial {
+  const canvas = (() => {
+    if (typeof document !== 'undefined') {
+      const el = document.createElement('canvas');
+      el.width = 512;
+      el.height = 256;
+      const ctx = el.getContext('2d')!;
+      ctx.font = 'bold 96px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 6;
+      ctx.shadowColor = 'rgba(255, 255, 255, 0.4)';
+      ctx.shadowBlur = 12;
+      ctx.fillText('SSS', 256, 128);
+      ctx.strokeText('SSS', 256, 128);
+      ctx.shadowBlur = 0;
+      return el;
+    }
+    return null;
+  })();
+  const map = canvas ? new CanvasTexture(canvas) : null;
+  if (map) map.anisotropy = 4;
+
   const flagMat = new MeshStandardMaterial({
-    color: "#2f74e0",
-    emissive: "#1d4e9e",
+    color: '#2f74e0',
+    emissive: '#1d4e9e',
     emissiveIntensity: 0.2,
     roughness: 0.5,
     side: DoubleSide,
+    map,
   });
   flagMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sceneryTime;

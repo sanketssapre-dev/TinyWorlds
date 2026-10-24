@@ -45,7 +45,8 @@ void main() {
 
 /** Angular radius of the primary lake's water cap. */
 export const MAIN_LAKE_ANGULAR = 0.24;
-export const POOL_ANGULAR = 0.055;
+/** The pond: the smallest of the three, but a real body of water now. */
+export const POOL_ANGULAR = 0.13;
 
 export const waterTime = { value: 0 };
 
@@ -54,7 +55,12 @@ export function createWater(): Group {
   group.name = "water";
   group.add(lake(SITES.lake.theta, SITES.lake.phi, MAIN_LAKE_ANGULAR, "#397e91", 10, 42, 0.16));
   group.add(lake(SITES.lake2.theta, SITES.lake2.phi, 0.125, "#39788c"));
-  group.add(lake(SITES.pool.theta, SITES.pool.phi, POOL_ANGULAR, "#438b87"));
+  // The pond needs minAboveCenter for the same reason the main lake does: its
+  // floor is clamped flat by PLANET.minHeight, so the rim-derived level lands
+  // below the ground and the water is never seen. This lifts the surface clear
+  // of the floor. 0.4 is as deep as the basin takes before the cap's edge
+  // starts to stand noticeably proud of the terrain.
+  group.add(lake(SITES.pool.theta, SITES.pool.phi, POOL_ANGULAR, "#397e91", 8, 32, 0.4));
   return group;
 }
 

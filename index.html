@@ -4,141 +4,67 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tiny Worlds</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        font-family: "Palatino Linotype", Palatino, "Times New Roman", serif;
-        background: #05060d;
-        color: #e8dfc8;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-      }
-      main {
-        max-width: 28rem;
-        padding: 2rem;
-        text-align: center;
-      }
-      h1 {
-        font-weight: normal;
-        letter-spacing: 0.04em;
-        margin-bottom: 0.4rem;
-      }
-      .title-frame {
-        position: relative;
-        text-align: center;
-        padding: 0 1rem;
-      }
-      .title-frame .corner {
-        position: absolute;
-        width: 2rem;
-        height: 2rem;
-        display: grid;
-        place-items: center;
-      }
-      .title-frame .c-tl {
-        top: 0.7rem;
-        left: 0.7rem;
-      }
-      .title-frame .c-tr {
-        top: 0.7rem;
-        right: 0.7rem;
-      }
-      .title-frame .c-bl {
-        bottom: 0.7rem;
-        left: 0.7rem;
-      }
-      .title-frame .c-br {
-        bottom: 0.7rem;
-        right: 0.7rem;
-      }
-      p {
-        margin: 0 0 2rem;
-        opacity: 0.72;
-        font-size: 0.95rem;
-      }
-      a {
-        display: block;
-        margin: 0.75rem 0;
-        padding: 0.85rem 1rem;
-        color: #e8dfc8;
-        text-decoration: none;
-        border: 1px solid rgba(212, 179, 106, 0.35);
-        border-radius: 4px;
-      }
-      a:hover {
-        border-color: rgba(212, 179, 106, 0.75);
-        background: rgba(212, 179, 106, 0.08);
-      }
-      a[href="#"] {
-        cursor: not-allowed;
-        opacity: 0.6;
-        pointer-events: none;
-      }
-    </style>
+    <link rel="stylesheet" href="./AnExplore/src/style.css" />
   </head>
   <body>
-    <main>
-      <div class="title-frame">
-        <div class="corner c-tl">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
-            <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
-            <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
-            <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
-            <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
-            <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
-            <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
-            <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
-          </svg>
+    <div id="app">
+      <canvas id="world"></canvas>
+      <div id="hud"></div>
+      <div id="loader">
+        <div class="title-frame">
+          <div class="corner c-tl">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
+              <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
+              <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
+              <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
+              <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
+              <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
+              <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
+              <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
+            </svg>
+          </div>
+          <div class="corner c-tr">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
+              <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
+              <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
+              <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
+              <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
+              <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
+              <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
+              <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
+            </svg>
+          </div>
+          <div class="corner c-bl">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
+              <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
+              <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
+              <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
+              <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
+              <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
+              <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
+              <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
+            </svg>
+          </div>
+          <div class="corner c-br">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
+              <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
+              <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
+              <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
+              <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
+              <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
+              <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
+              <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
+            </svg>
+          </div>
+          <p class="flight-title">Tiny Worlds</p>
         </div>
-        <div class="corner c-tr">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
-            <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
-            <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
-            <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
-            <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
-            <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
-            <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
-            <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
-          </svg>
-        </div>
-        <div class="corner c-bl">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
-            <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
-            <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
-            <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
-            <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
-            <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
-            <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
-            <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
-          </svg>
-        </div>
-        <div class="corner c-br">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2 0 L20 0 L20 20 L0 20 Z" fill="none" stroke="#d4b36a" stroke-width="0.5" opacity="0.4"/>
-            <path d="M2 0 L6 3 L6 2" fill="#d4b36a"/>
-            <path d="M0 2 L3 6 L0 6" fill="#d4b36a"/>
-            <path d="M20 0 L16 3 L20 2" fill="#d4b36a"/>
-            <path d="M20 20 L16 17 L20 17" fill="#d4b36a"/>
-            <path d="M0 20 L3 16 L0 16" fill="#d4b36a"/>
-            <circle cx="11" cy="11" r="5" fill="none" stroke="#d4b36a" stroke-width="0.4" opacity="0.35"/>
-            <circle cx="11" cy="11" r="2" fill="#d4b36a"/>
-          </svg>
-        </div>
-        <h1>Tiny Worlds</h1>
       </div>
-      <p>Two quiet worlds. Not a game, not a task. Just places you can put on a screen — while you work, while you drink coffee, while the day goes on around you.</p>
-      <a href="./ASilentFlight/">A Silent Flight</a>
-      <a href="#" style="pointer-events: none; cursor: default; opacity: 0.7; display: block; text-align: center;">
-        A Silent Sail
-        <span style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-top: 0.25rem;">(coming soon)</span>
-      </a>
-    </main>
+      <div id="error" hidden></div>
+    </div>
+    <script type="module" src="./AnExplore/src/main.ts"></script>
   </body>
 </html>
