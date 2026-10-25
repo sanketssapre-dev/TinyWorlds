@@ -101,7 +101,7 @@ describe("tree geometry", () => {
       if (mesh.instanceColor) tinted += mesh.count;
     });
 
-    expect(tinted).toBe(3021);
+    expect(tinted).toBe(2929);
     expect(total).toBeGreaterThanOrEqual(tinted);
   });
 });

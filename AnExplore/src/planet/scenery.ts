@@ -67,6 +67,14 @@ const WOODLAND_CLUSTER_SIZE = 4;
 const WOODLAND_CLUSTER_SPACING = 0.95;
 const VILLAGE_SLICE_COUNT = 6;
 const VILLAGE_SLICE_WIDTH = (Math.PI * 2) / VILLAGE_SLICE_COUNT;
+/** Extra radius added to each cottage ring so neighbouring roofs clear. */
+const RING_SPACING = [0, 0.03, 0.045];
+/** Clear ground between the cottage roofs and the rest of the village. */
+const COTTAGE_CLEAR = 0.02;
+/** Radial depth of a farm patch. */
+const FIELD_DEPTH = 0.09;
+/** Clear ground between a farm patch and the fence. */
+const FENCE_CLEAR = 0.02;
 
 type VillageLayout = {
   farms: readonly number[];
@@ -101,10 +109,30 @@ const STRIP_CLEARANCE = 0.034;
 const STRIP_SCALE = 4;
 const STRIP_LENGTH = 1.85 * STRIP_SCALE;
 const STRIP_WIDTH = 0.36 * STRIP_SCALE;
-const TERMINAL_ALONG = -0.2;
-const TERMINAL_SIDE = STRIP_WIDTH / 2 + 0.55;
-const TOWER_ALONG = 0.78;
-const LANDING_TREE_CLEARANCE = 0.95;
+/** How far the forest and the rocks are held back from the whole airfield. */
+const LANDING_TREE_CLEARANCE = 3.0;
+
+// The airfield's own frame: "along" runs the length of the runway, "radial"
+// across it, measured from the runway centre. Everything on the ground is laid
+// out in these coordinates.
+const RUNWAY_HALF_WIDTH = STRIP_WIDTH / 2;
+const SHOULDER_HALF_WIDTH = RUNWAY_HALF_WIDTH + 0.17;
+const TAXIWAY_HALF_WIDTH = 0.2;
+const APRON_NEAR = SHOULDER_HALF_WIDTH + TAXIWAY_HALF_WIDTH;
+const APRON_DEPTH = 1.25;
+const APRON_FAR = APRON_NEAR + APRON_DEPTH;
+const APRON_ALONG_START = -2.85;
+const APRON_ALONG_END = 0.85;
+const APRON_ALONG_CENTRE = (APRON_ALONG_START + APRON_ALONG_END) / 2;
+const TERMINAL_ALONG = -0.45;
+const TOWER_ALONG = 1.35;
+/** Both buildings stand on the far side of the apron, facing the runway. */
+const BUILDING_RADIAL = APRON_FAR + 0.42;
+/** Margin left between the airfield and the fence that wraps around it. */
+const AIRFIELD_FENCE_MARGIN = 1.1;
+/** Half-extent of the fenced box around the airfield, in the airfield frame. */
+const FENCE_ALONG = STRIP_LENGTH / 2 + AIRFIELD_FENCE_MARGIN;
+const FENCE_RADIAL = BUILDING_RADIAL + AIRFIELD_FENCE_MARGIN;
 
 const SETTLEMENTS: Settlement[] = [
   {
@@ -200,8 +228,31 @@ function outerRadius(site: Settlement): number {
   return site.rings.reduce((max, ring) => Math.max(max, ring.rad), 0);
 }
 
+/** The ring the outer cottages actually stand on (ring 0 is the centre house). */
+function cottageRingRadius(site: Settlement): number {
+  if (site.rings.length < 2) return 0;
+  return site.rings[1].rad + RING_SPACING[1];
+}
+
+/**
+ * How far the widest cottage roof can reach past its own centre. Derived from the
+ * largest cottage (w 1.28, d 0.95 before scaling) and ROOF_OVERHANG;
+ * `villageClearance.test.ts` asserts the real cottages stay inside this.
+ */
+const MAX_ROOF_REACH = 0.99;
+
+/** Outer edge of the cottage roofs, as a radius about the village centre. */
+function cottageEnvelope(site: Settlement): number {
+  return cottageRingRadius(site) + MAX_ROOF_REACH / PLANET.radius;
+}
+
+/**
+ * The fence is the outer boundary of the whole village: cottage ring, clear
+ * ground, the farm ring and a further margin. Deriving it from the cottage
+ * envelope is what keeps the farm patches outside the roofs.
+ */
 function fenceRadius(site: Settlement): number {
-  return outerRadius(site) + 0.11;
+  return cottageEnvelope(site) + COTTAGE_CLEAR + FIELD_DEPTH + FENCE_CLEAR;
 }
 
 function signedDeltaPhi(from: number, to: number): number {
@@ -348,12 +399,39 @@ const LAKESIDE_GROVES = [
   })),
 ];
 
+/**
+ * Distance from the village centre to the fence, at a bearing measured from the
+ * airport direction. The fence is the village circle, except at the airstrip,
+ * where it takes a rectangular detour around the runway, apron and buildings.
+ */
+function fenceRadiusAt(site: Settlement, index: number, bearing: number): number {
+  const radius = fenceRadius(site);
+  if (index !== LANDING_VILLAGE) return radius;
+  const cos = Math.cos(bearing);
+  const sin = Math.sin(bearing);
+  if (cos <= 1e-6) return radius;
+  // The fenced box around the airfield, converted to an angular distance.
+  const farSide = (radius + STRIP_CLEARANCE + FENCE_RADIAL / PLANET.radius) / cos;
+  const farEnd = Math.abs(sin) > 1e-6 ? FENCE_ALONG / (Math.abs(sin) * PLANET.radius) : Infinity;
+  return Math.max(radius, Math.min(farSide, farEnd));
+}
+
+/** The fence outline as (bearing from the airport direction, radius) pairs. */
+function fenceOutline(site: Settlement, index: number, samples = 200): { bearing: number; radius: number }[] {
+  const out: { bearing: number; radius: number }[] = [];
+  for (let i = 0; i < samples; i++) {
+    const bearing = (i / samples) * Math.PI * 2;
+    out.push({ bearing, radius: fenceRadiusAt(site, index, bearing) });
+  }
+  return out;
+}
+
 function insidePaddock(theta: number, phi: number): boolean {
-  return SETTLEMENTS.some(
-    (site, index) =>
-      ACTIVE_VILLAGES.has(index) &&
-      angularDistance(theta, phi, site.theta, site.phi) < fenceRadius(site) + 0.01,
-  );
+  return SETTLEMENTS.some((site, index) => {
+    if (!ACTIVE_VILLAGES.has(index)) return false;
+    const bearing = Math.atan2(phi - site.phi, theta - site.theta) - LANDING_ANGLE;
+    return angularDistance(theta, phi, site.theta, site.phi) < fenceRadiusAt(site, index, bearing) + 0.01;
+  });
 }
 
 function nearLandingStrip(theta: number, phi: number): boolean {
@@ -363,21 +441,22 @@ function nearLandingStrip(theta: number, phi: number): boolean {
   const tangent = LANDING_ANGLE + Math.PI / 2;
   const along = dt * Math.cos(tangent) + dp * Math.sin(tangent);
   const radial = dt * Math.cos(LANDING_ANGLE) + dp * Math.sin(LANDING_ANGLE);
-  const center = fenceRadius(site) + STRIP_CLEARANCE;
-  const runway =
-    Math.abs(along) < (STRIP_LENGTH / 2 + LANDING_TREE_CLEARANCE) / PLANET.radius &&
-    Math.abs(radial - center) < (STRIP_WIDTH / 2 + LANDING_TREE_CLEARANCE) / PLANET.radius;
-  const terminal =
-    Math.abs(along - TERMINAL_ALONG / PLANET.radius) <
-      (0.55 + LANDING_TREE_CLEARANCE) / PLANET.radius &&
-    Math.abs(radial - (center + TERMINAL_SIDE / PLANET.radius)) <
-      (0.45 + LANDING_TREE_CLEARANCE) / PLANET.radius;
-  const tower =
-    Math.abs(along - (TERMINAL_ALONG + TOWER_ALONG) / PLANET.radius) <
-      (0.42 + LANDING_TREE_CLEARANCE) / PLANET.radius &&
-    Math.abs(radial - (center + TERMINAL_SIDE / PLANET.radius)) <
-      (0.4 + LANDING_TREE_CLEARANCE) / PLANET.radius;
-  return runway || terminal || tower;
+  const runwayCentre = fenceRadius(site) + STRIP_CLEARANCE;
+  const clear = LANDING_TREE_CLEARANCE / PLANET.radius;
+
+  // The whole airfield is one clearing: runway and shoulders, the taxiway, the
+  // apron and both buildings. Anything standing inside it would leave the strip
+  // wedged into the trees.
+  const inside = (alongCentre: number, radialCentre: number, halfAlong: number, halfRadial: number) =>
+    Math.abs(along - alongCentre / PLANET.radius) < (halfAlong + clear) / PLANET.radius &&
+    Math.abs(radial - (runwayCentre + radialCentre / PLANET.radius)) < (halfRadial + clear) / PLANET.radius;
+
+  return (
+    inside(0, 0, STRIP_LENGTH / 2 + 0.15, SHOULDER_HALF_WIDTH + 0.1) ||
+    inside(APRON_ALONG_CENTRE, (APRON_NEAR + APRON_FAR) / 2, (APRON_ALONG_END - APRON_ALONG_START) / 2, APRON_DEPTH / 2) ||
+    inside(TERMINAL_ALONG, BUILDING_RADIAL, 0.9, 0.5) ||
+    inside(TOWER_ALONG, BUILDING_RADIAL, 0.55, 0.55)
+  );
 }
 
 function canPlantTree(
@@ -898,6 +977,53 @@ function createGrassTufts(path: FlightPath): InstancedMesh {
   return mesh;
 }
 
+/** How far the roof eaves extend past the wall footprint, as a fraction. */
+const ROOF_OVERHANG = 0.22;
+/** Shared wall colour for every cottage. */
+const WALL_COLOR = "#c9a45c";
+
+/**
+ * Unit hip roof: a 1x1 footprint sitting on y=0, rising to a ridge plateau at
+ * y=1. Four slopes run from the eaves to the ridge crest. Instances are scaled
+ * to the cottage's real width, roof height and depth, so the geometry stays
+ * shared and the bake step can instance it.
+ */
+function createHipRoofGeometry(): BufferGeometry {
+  const floor = [
+    [-0.5, 0, 0.5],
+    [0.5, 0, 0.5],
+    [0.5, 0, -0.5],
+    [-0.5, 0, -0.5],
+  ];
+  const ridgeLen = 0.6;
+  const ridgeWidth = 0.4;
+  const ridge = [
+    [-ridgeLen / 2, 1, ridgeWidth / 2],
+    [ridgeLen / 2, 1, ridgeWidth / 2],
+    [ridgeLen / 2, 1, -ridgeWidth / 2],
+    [-ridgeLen / 2, 1, -ridgeWidth / 2],
+  ];
+
+  const positions: number[] = [];
+  for (const v of floor) positions.push(v[0], v[1], v[2]);
+  for (const v of ridge) positions.push(v[0], v[1], v[2]);
+
+  // Eaves are 0-3, ridge corners are 4-7. Two triangles per slope, wound so the
+  // normals face outward from the roof.
+  const indices = [
+    0, 1, 5, 0, 5, 4, // front slope
+    2, 3, 7, 2, 7, 6, // back slope
+    1, 2, 6, 1, 6, 5, // right slope
+    3, 0, 4, 3, 4, 7, // left slope
+  ];
+
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function cottage(w: number, d: number, h: number, roof: string, floors = 1): Group {
   const g = new Group();
   const wallH = h * floors;
@@ -919,20 +1045,54 @@ function cottage(w: number, d: number, h: number, roof: string, floors = 1): Gro
   }
   const wall = new Mesh(
     new BoxGeometry(w, wallH, d),
-    new MeshStandardMaterial({ color: "#d8c7a6", roughness: 0.88 }),
+    new MeshStandardMaterial({ color: WALL_COLOR, roughness: 0.88 }),
   );
   wall.position.y = wallH / 2;
   wall.castShadow = true;
   wall.userData.role = "cottage-wall";
-  const roofMesh = new Mesh(
-    new ConeGeometry(Math.max(w, d) * 0.72, h * 0.7, 4),
-    new MeshStandardMaterial({ color: roof, roughness: 0.78 }),
-  );
-  roofMesh.position.y = wallH + h * 0.22;
-  roofMesh.rotation.y = Math.PI / 4;
+  g.add(wall);
+
+  // --- Hip roof (proper, all sides slope from eaves to ridge) ---
+  const roofH = h * 0.5;
+
+  const faceMat = new MeshStandardMaterial({ color: roof, roughness: 0.78 });
+  faceMat.side = DoubleSide;
+  const plateauMat = new MeshStandardMaterial({ color: roof, roughness: 0.8 });
+
+  const roofMesh = new Mesh(createHipRoofGeometry(), faceMat);
+  roofMesh.scale.set(w * (1 + ROOF_OVERHANG), roofH, d * (1 + ROOF_OVERHANG));
+  roofMesh.position.y = wallH;
   roofMesh.castShadow = true;
   roofMesh.userData.role = "cottage-roof";
-  g.add(wall, roofMesh);
+  g.add(roofMesh);
+
+  // Ridge plateau standing on the ridge crest
+  const ridgePlateau = new Mesh(
+    new BoxGeometry(w * 0.6 * (1 + ROOF_OVERHANG), 0.12, d * 0.4 * (1 + ROOF_OVERHANG)),
+    plateauMat,
+  );
+  ridgePlateau.position.y = wallH + roofH + 0.06;
+  ridgePlateau.castShadow = true;
+  g.add(ridgePlateau);
+
+    // Chimney (on two-storey cottages)
+    if (floors > 1) {
+      const chimney = new Mesh(
+        new BoxGeometry(w * 0.16, h * 0.5, d * 0.14),
+        new MeshStandardMaterial({ color: "#5a4a3a", roughness: 0.95 }),
+      );
+      chimney.position.set(-w * 0.22, wallH + roofH * 0.65, d * 0.15);
+      chimney.castShadow = true;
+      g.add(chimney);
+      // Chimney pot
+      const pot = new Mesh(
+        new CylinderGeometry(w * 0.09, w * 0.07, 0.12, 8),
+        new MeshStandardMaterial({ color: "#6b5540", roughness: 0.9 }),
+      );
+      pot.position.set(-w * 0.22, wallH + roofH * 0.92, d * 0.15);
+      g.add(pot);
+    }
+
   const pane = new MeshStandardMaterial({
     color: "#f6d789",
     emissive: "#f0c35c",
@@ -987,8 +1147,8 @@ function fenceInstances(
 }
 
 const fenceWood = new MeshStandardMaterial({ color: "#6d4c32", roughness: 0.9 });
-const fencePostGeo = new CylinderGeometry(0.05, 0.06, 1, 6);
-const fenceRailGeo = new BoxGeometry(0.05, 0.04, 1);
+const fencePostGeo = new BoxGeometry(0.085, 1, 0.085);
+const fenceRailGeo = new BoxGeometry(0.06, 0.045, 1);
 const fireWood = new MeshStandardMaterial({ color: "#4a3424", roughness: 0.9 });
 const farmSoil = new MeshStandardMaterial({
   color: "#75502d",
@@ -996,22 +1156,38 @@ const farmSoil = new MeshStandardMaterial({
   side: DoubleSide,
 });
 const paddyWaterMat = new MeshStandardMaterial({
-  color: "#a99b78",
-  roughness: 0.38,
-  metalness: 0.08,
+  color: "#7b8a72",
+  roughness: 0.16,
+  metalness: 0.14,
   side: DoubleSide,
 });
-const wheatStemMat = new MeshStandardMaterial({ color: "#c29a43", roughness: 0.86 });
-const wheatHeadMat = new MeshStandardMaterial({
-  color: "#f0c65a",
-  roughness: 0.72,
-  emissive: "#805512",
-  emissiveIntensity: 0.14,
+const riceClumpMat = new MeshStandardMaterial({
+  color: "#6f9c42",
+  roughness: 0.82,
+  emissive: "#2c3f14",
+  emissiveIntensity: 0.12,
 });
-const wheatStemGeo = new CylinderGeometry(0.009, 0.014, 1, 5);
-wheatStemGeo.translate(0, 0.5, 0);
-const wheatHeadGeo = new ConeGeometry(0.038, 0.16, 5);
 const wheatDummy = new Object3D();
+
+/**
+ * One rice hill: several slender blades fanning out from a single base point.
+ * Built once and instanced, so a whole paddy costs a single draw. The clump is
+ * unit height, so the instance's y scale *is* the plant height.
+ */
+function createRiceClumpGeometry(): BufferGeometry {
+  const tilts = [0.16, 0.22, 0.29, 0.2, 0.26, 0.17];
+  const parts: BufferGeometry[] = [];
+  for (let i = 0; i < tilts.length; i++) {
+    const blade = new ConeGeometry(0.05, 1, 4);
+    blade.translate(0, 0.5, 0);
+    const azimuth = (i / tilts.length) * Math.PI * 2 + 0.7;
+    const axis = new Vector3(Math.cos(azimuth), 0, Math.sin(azimuth));
+    blade.applyQuaternion(new Quaternion().setFromAxisAngle(axis, tilts[i]));
+    parts.push(blade);
+  }
+  return mergeGeometryParts(parts);
+}
+const riceClumpGeo = createRiceClumpGeometry();
 const sheepWool = new MeshStandardMaterial({ color: "#e9e1cf", roughness: 0.96 });
 const sheepFace = new MeshStandardMaterial({ color: "#6c5947", roughness: 0.92 });
 const sheepLeg = new MeshStandardMaterial({ color: "#594938", roughness: 0.92 });
@@ -1024,8 +1200,16 @@ const fireFlame = new MeshStandardMaterial({
 const fireHot = fireFlame.clone();
 fireHot.emissive.set("#ffe08a");
 const pathDirt = new MeshStandardMaterial({ color: "#8a7354", roughness: 0.95 });
-const stripDirt = new MeshStandardMaterial({ color: "#5a6168", roughness: 0.74, metalness: 0.06 });
-const stripMark = new MeshStandardMaterial({ color: "#d9d3c4", roughness: 0.88 });
+const stripAsphalt = new MeshStandardMaterial({ color: "#474d52", roughness: 0.88 });
+const stripShoulder = new MeshStandardMaterial({ color: "#6b7074", roughness: 0.92 });
+const apronConcrete = new MeshStandardMaterial({ color: "#969c9f", roughness: 0.78 });
+const apronPaint = new MeshStandardMaterial({ color: "#e8c15a", roughness: 0.6 });
+/** Levelled, mown ground under the whole airfield, so it reads as a clearing. */
+const mownGrass = new MeshStandardMaterial({
+  color: "#577c42",
+  roughness: 0.95,
+  side: DoubleSide,
+});
 const runwayPaint = new MeshStandardMaterial({ color: "#f4f6f4", roughness: 0.55 });
 const runwayPost = new MeshStandardMaterial({ color: "#3a4148", roughness: 0.5, metalness: 0.28 });
 /** Key light sits at (90, 55, 35); villages on that hemisphere stay unlit. */
@@ -1105,6 +1289,9 @@ function plantSettlement(
       n++;
     }
   }
+  // Widen the rings so neighbouring hip roofs clear each other. The eaves
+  // overhang the walls by ROOF_OVERHANG, so houses in adjacent rings need
+  // extra clearance — ~0.03 radians per ring (≈1.35 units at planet radius 45).
   const retainedHomes = homes
     .slice(0, 4)
     .map((house, originalIndex) => ({ house, originalIndex }));
@@ -1112,7 +1299,15 @@ function plantSettlement(
     const floors = STACKED_HOUSES[index].includes(i) ? 2 : 1;
     const house = cottage(h.w * 2.25, h.d * 2.25, h.h * 2.25, roofs[i % roofs.length], floors);
     if (floors > 1) house.name = "double-cottage";
-    const { pos, up } = placeOnSurface(site.theta + h.dt, site.phi + h.dp, 0);
+    // Push the cottage outward along its own bearing so the ring stays a true
+    // circle. Adding the fix to each component instead made the ring radius
+    // angle-dependent (up to sqrt(2)x), which pushed the diagonal cottages out
+    // to the farm patches' inner edge.
+    const ringIdx = site.rings.findIndex((r) => Math.abs(r.rad - Math.hypot(h.dt, h.dp)) < 1e-6);
+    const fix = ringIdx >= 0 ? RING_SPACING[Math.min(ringIdx, 2)] : 0;
+    const ringRad = Math.hypot(h.dt, h.dp);
+    const scale = ringRad > 0 ? (ringRad + fix) / ringRad : 1;
+    const { pos, up } = placeOnSurface(site.theta + h.dt * scale, site.phi + h.dp * scale, 0);
     orient(house, pos, up, h.yaw);
     root.add(house);
   });
@@ -1142,11 +1337,23 @@ function plantSettlement(
   const layout = VILLAGE_LAYOUTS[index];
   if (layout.sheepSlice !== null) addGrazingSheep(root, site, index, layout.sheepSlice);
 
+  // Bonfires go in the clear ground just outside the cottage roofs, in the gaps
+  // between cottages. A fixed radius put them inside the ring, where they
+  // overlapped the houses.
+  const ringHomes = retainedHomes.filter(({ house: h }) => Math.hypot(h.dt, h.dp) > 1e-6);
+  const homeAngles = ringHomes
+    .map(({ house: h }) => Math.atan2(h.dp, h.dt))
+    .sort((a, b) => a - b);
+  const fireAngle = (i: number): number => {
+    if (homeAngles.length < 2) return ((i + 0.5) / site.fires) * (Math.PI / 3) + 0.12;
+    const a0 = homeAngles[i % homeAngles.length];
+    const a1 = homeAngles[(i + 1) % homeAngles.length];
+    const gap = a1 > a0 ? a1 - a0 : a1 - a0 + Math.PI * 2;
+    return a0 + gap / 2;
+  };
   const sunlit = facesSun(site.theta, site.phi);
   for (let i = 0; i < site.fires; i++) {
-    const angle = ((i + 0.5) / site.fires) * (Math.PI / 3) + 0.12;
-    const radius = 0.072 + (i % 2) * 0.026 + Math.floor(i / 2) * 0.008;
-    const at = ringPoint(site.theta, site.phi, radius, angle);
+    const at = ringPoint(site.theta, site.phi, cottageEnvelope(site) + COTTAGE_CLEAR * 0.5, fireAngle(i));
     addBonfire(root, at.theta, at.phi, index * 1.7 + i * 2.1, sunlit);
   }
 
@@ -1158,12 +1365,12 @@ function plantSettlement(
 }
 
 function addVillageGroundLayout(root: Group, site: Settlement, index: number): void {
-  const inner = outerRadius(site);
-  const fence = fenceRadius(site);
-
   const layout = VILLAGE_LAYOUTS[index];
-  const fieldInner = inner + 0.019;
-  const fieldOuter = fence - 0.019;
+  // The farm ring sits outside the cottage roofs, with clear ground on both
+  // sides. Anchoring it to outerRadius() instead let the patches reach back in
+  // over the houses.
+  const fieldInner = cottageEnvelope(site) + COTTAGE_CLEAR;
+  const fieldOuter = fenceRadius(site) - FENCE_CLEAR;
   const angularMargin = 0.03;
   for (const slice of layout.farms) {
     const sliceCenter = (slice + 0.5) * VILLAGE_SLICE_WIDTH;
@@ -1176,7 +1383,7 @@ function addVillageGroundLayout(root: Group, site: Settlement, index: number): v
       sliceCenter - halfWidth,
       sliceCenter + halfWidth,
       farmSoil,
-      "wheat-field",
+      "rice-field",
       0.09,
     );
     for (let channel = 1; channel <= 4; channel++) {
@@ -1194,7 +1401,7 @@ function addVillageGroundLayout(root: Group, site: Settlement, index: number): v
         0.105,
       );
     }
-    addWheatRows(root, site, index, slice, sliceCenter, halfWidth, fieldInner, fieldOuter);
+    addRiceClumps(root, site, index, slice, sliceCenter, halfWidth, fieldInner, fieldOuter);
   }
 }
 
@@ -1248,7 +1455,7 @@ function addSphericalPatch(
   root.add(mesh);
 }
 
-function addWheatRows(
+function addRiceClumps(
   root: Group,
   site: Settlement,
   villageIndex: number,
@@ -1261,12 +1468,9 @@ function addWheatRows(
   const radialRows = 17;
   const plantsPerRow = 22;
   const plantCount = radialRows * plantsPerRow;
-  const stems = new InstancedMesh(wheatStemGeo, wheatStemMat, plantCount);
-  const heads = new InstancedMesh(wheatHeadGeo, wheatHeadMat, plantCount);
-  stems.name = "wheat-stalks";
-  heads.name = "wheat-heads";
-  stems.castShadow = true;
-  heads.castShadow = true;
+  const clumps = new InstancedMesh(riceClumpGeo, riceClumpMat, plantCount);
+  clumps.name = "rice-clumps";
+  clumps.castShadow = true;
   let plant = 0;
   for (let row = 0; row < radialRows; row++) {
     const radius = innerRadius + ((outer - innerRadius) * (row + 0.5)) / radialRows;
@@ -1279,23 +1483,19 @@ function addWheatRows(
         site.phi + Math.sin(angle) * radius,
         0.09,
       );
-      const height = 0.38 + hash01(villageIndex, slice, row, column + 29) * 0.24;
+      const height = 0.3 + hash01(villageIndex, slice, row, column + 29) * 0.16;
+      // Wider clumps read as a tussock; taller ones as a young hill.
+      const spread = 0.85 + hash01(villageIndex, slice, row, column + 47) * 0.45;
       wheatDummy.position.copy(ground.pos);
       wheatDummy.quaternion.setFromUnitVectors(treeUp, ground.up);
-      wheatDummy.scale.set(1, height, 1);
+      wheatDummy.scale.set(spread, height, spread);
       wheatDummy.updateMatrix();
-      stems.setMatrixAt(plant, wheatDummy.matrix);
-
-      wheatDummy.position.copy(ground.pos).addScaledVector(ground.up, height * 0.88);
-      wheatDummy.scale.setScalar(1.05 + hash01(villageIndex, slice, row, column + 47) * 0.5);
-      wheatDummy.updateMatrix();
-      heads.setMatrixAt(plant, wheatDummy.matrix);
+      clumps.setMatrixAt(plant, wheatDummy.matrix);
       plant++;
     }
   }
-  stems.instanceMatrix.needsUpdate = true;
-  heads.instanceMatrix.needsUpdate = true;
-  root.add(stems, heads);
+  clumps.instanceMatrix.needsUpdate = true;
+  root.add(clumps);
 }
 
 function addGrazingSheep(root: Group, site: Settlement, index: number, slice: number): void {
@@ -1332,7 +1532,7 @@ function addGrazingSheep(root: Group, site: Settlement, index: number, slice: nu
     head.castShadow = true;
     const lane = (i - (herdSize - 1) / 2) * 0.095;
     const angle = sliceCenter + lane;
-    const radius = 0.095 + (i % 2) * 0.012;
+    const radius = cottageEnvelope(site) + 0.045 + (i % 2) * 0.012;
     const theta = site.theta + Math.cos(angle) * radius;
     const phi = site.phi + Math.sin(angle) * radius;
     const placed = placeOnSurface(theta, phi, 0);
@@ -1352,35 +1552,67 @@ function addGrazingSheep(root: Group, site: Settlement, index: number, slice: nu
 }
 
 function addPaddock(site: Settlement, index: number, posts: Matrix4[], rails: Matrix4[]): void {
-  const radius = fenceRadius(site);
-  const count = Math.max(20, Math.round((2 * Math.PI * radius * PLANET.radius) / 0.95));
+  const outline = fenceOutline(site, index);
+  const pts = outline.map((p) => ringPoint(site.theta, site.phi, p.radius, LANDING_ANGLE + p.bearing));
+
+  // Cumulative arc length, so posts can be spaced evenly along the whole fence —
+  // which is no longer a circle, but a circle with a rectangular bulge for the
+  // airfield.
+  const cumulative: number[] = [0];
+  for (let i = 1; i <= pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i % pts.length];
+    cumulative.push(cumulative[i - 1] + angularDistance(a.theta, a.phi, b.theta, b.phi));
+  }
+  const total = cumulative[cumulative.length - 1];
+  const count = Math.max(20, Math.round((total * PLANET.radius) / 0.95));
+
+  /** Interpolate the outline at an arc position, returning position and bearing. */
+  const atArc = (s: number): { theta: number; phi: number; bearing: number } => {
+    const target = ((s % total) + total) % total;
+    let lo = 0;
+    let hi = cumulative.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (cumulative[mid] <= target) lo = mid;
+      else hi = mid;
+    }
+    const span = cumulative[lo + 1] - cumulative[lo] || 1;
+    const t = (target - cumulative[lo]) / span;
+    const a = pts[lo];
+    const b = pts[(lo + 1) % pts.length];
+    const theta = a.theta + (b.theta - a.theta) * t;
+    const phi = a.phi + (b.phi - a.phi) * t;
+    return { theta, phi, bearing: Math.atan2(phi - site.phi, theta - site.theta) };
+  };
+
   const gates = gateAngles(index);
-  const opening = (angle: number) => gates.some((gate) => angleDelta(angle, gate) < 0.16);
-  const gatePost = (angle: number) =>
-    !opening(angle) && gates.some((gate) => angleDelta(angle, gate) < 0.27);
-  const step = (Math.PI * 2) / count;
+  const opening = (bearing: number) => gates.some((gate) => angleDelta(bearing, gate) < 0.16);
+  const gatePost = (bearing: number) =>
+    !opening(bearing) && gates.some((gate) => angleDelta(bearing, gate) < 0.27);
+  const step = total / count;
+
   for (let i = 0; i < count; i++) {
-    const angle = i * step;
-    if (opening(angle)) continue;
-    const at = ringPoint(site.theta, site.phi, radius, angle);
-    const tall = gatePost(angle);
-    const height = tall ? 0.52 : 0.36;
+    const here = atArc(i * step);
+    if (opening(here.bearing)) continue;
+    const tall = gatePost(here.bearing);
+    const height = tall ? 0.6 : 0.46;
     dummy.scale.set(1, height, 1);
-    const placed = placeOnSurface(at.theta, at.phi, height / 2);
+    const placed = placeOnSurface(here.theta, here.phi, height / 2);
     orient(dummy, placed.pos, placed.up);
     dummy.updateMatrix();
     posts.push(dummy.matrix.clone());
-    const next = i + 1 === count ? 0 : i + 1;
-    const nextAngle = next * step;
-    if (opening(nextAngle)) continue;
-    const far = ringPoint(site.theta, site.phi, radius, nextAngle);
-    const mid = ringPoint(site.theta, site.phi, radius, angle + step / 2);
-    const span = angularDistance(at.theta, at.phi, far.theta, far.phi) * PLANET.radius * 0.62;
-    for (const lift of [0.13, 0.26]) {
-      dummy.scale.set(1, 1, span);
-      const seat = placeOnSurface(mid.theta, mid.phi, lift);
-      const end = placeOnSurface(far.theta, far.phi, lift);
-      orient(dummy, seat.pos, seat.up, yawToward(seat.up, end.pos.clone().sub(seat.pos)));
+
+    const next = atArc((i + 1) * step);
+    if (opening(next.bearing)) continue;
+    // Three rails, each running the full post-to-post distance so they meet the
+    // posts instead of floating in the middle of the span.
+    for (const lift of [0.13, 0.27, 0.4]) {
+      const a = placeOnSurface(here.theta, here.phi, lift);
+      const b = placeOnSurface(next.theta, next.phi, lift);
+      const mid = a.pos.clone().add(b.pos).multiplyScalar(0.5);
+      dummy.scale.set(1, 1, a.pos.distanceTo(b.pos));
+      orient(dummy, mid, mid.clone().normalize(), yawToward(a.up, b.pos.clone().sub(a.pos)));
       dummy.updateMatrix();
       rails.push(dummy.matrix.clone());
     }
@@ -1419,6 +1651,7 @@ function addGentleSmoke(parent: Group, phase: number): void {
 
 function addBonfire(root: Group, theta: number, phi: number, phase: number, sunlit: boolean): void {
   const g = new Group();
+  g.name = "village-bonfire";
   const logA = new Mesh(new CylinderGeometry(0.035, 0.045, 0.32, 5), fireWood);
   logA.rotation.z = Math.PI / 2;
   logA.rotation.y = 0.45;
@@ -1554,66 +1787,220 @@ function faceHeading(obj: Object3D, at: Ang, heading: number, extra: number): vo
   orient(obj, placed.pos, placed.up, yawToward(placed.up, nudge.pos.clone().sub(placed.pos)));
 }
 
+/**
+ * A rectangular patch of ground laid out in the airfield's own frame. Built
+ * vertex by vertex so it follows the planet's curvature like every other
+ * ground feature.
+ */
+function buildGroundRect(
+  origin: Ang,
+  heading: number,
+  halfAlong: number,
+  halfRadial: number,
+  alongSegments: number,
+  radialSegments: number,
+  material: MeshStandardMaterial,
+  name: string,
+  lift: number,
+): Mesh {
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  for (let r = 0; r <= radialSegments; r++) {
+    const radial = -halfRadial + (2 * halfRadial * r) / radialSegments;
+    for (let a = 0; a <= alongSegments; a++) {
+      const along = -halfAlong + (2 * halfAlong * a) / alongSegments;
+      const at = offsetAlong(origin, heading, along, radial);
+      const placed = placeOnSurface(at.theta, at.phi, lift);
+      vertices.push(placed.pos.x, placed.pos.y, placed.pos.z);
+    }
+  }
+  for (let r = 0; r < radialSegments; r++) {
+    for (let a = 0; a < alongSegments; a++) {
+      const i = r * (alongSegments + 1) + a;
+      indices.push(i, i + 1, i + alongSegments + 1, i + 1, i + alongSegments + 2, i + alongSegments + 1);
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mesh = new Mesh(geo, material);
+  mesh.name = name;
+  mesh.receiveShadow = true;
+  mesh.userData.seatToPlanetSurface = true;
+  mesh.userData.surfaceOffset = lift;
+  return mesh;
+}
+
 function addLandingStrip(root: Group, site: Settlement): void {
   const tangent = LANDING_ANGLE + Math.PI / 2;
   const mid = ringPoint(site.theta, site.phi, fenceRadius(site) + STRIP_CLEARANCE, LANDING_ANGLE);
   const group = new Group();
   group.name = "landing-strip";
 
-  const slab = new Mesh(new BoxGeometry(STRIP_WIDTH, 0.05, STRIP_LENGTH), stripDirt);
+  // Levelled, mown ground under the whole airfield. Without it the strip reads
+  // as a road cut into the forest floor.
+  group.add(
+    buildGroundRect(
+      mid,
+      tangent,
+      STRIP_LENGTH / 2 + 2.3,
+      BUILDING_RADIAL + 0.9,
+      32,
+      14,
+      mownGrass,
+      "airfield-ground",
+      0.012,
+    ),
+  );
+
+  // Shoulder, then the asphalt sitting on it.
+  const shoulder = new Mesh(
+    new BoxGeometry(SHOULDER_HALF_WIDTH * 2, 0.045, STRIP_LENGTH + 0.3),
+    stripShoulder,
+  );
+  shoulder.receiveShadow = true;
+  faceHeading(shoulder, mid, tangent, 0.024);
+  group.add(shoulder);
+
+  const slab = new Mesh(new BoxGeometry(STRIP_WIDTH, 0.05, STRIP_LENGTH), stripAsphalt);
   slab.receiveShadow = true;
   paintRunway(slab);
   addRunwayLights(slab);
-  faceHeading(slab, mid, tangent, 0.03);
+  faceHeading(slab, mid, tangent, 0.052);
   group.add(slab);
 
-  const markGeo = new CylinderGeometry(0.018, 0.022, 0.07, 5);
-  for (const along of [-STRIP_LENGTH / 2, STRIP_LENGTH / 2]) {
-    for (const side of [-(STRIP_WIDTH / 2 + 0.05), STRIP_WIDTH / 2 + 0.05]) {
-      const mark = new Mesh(markGeo, stripMark);
-      mark.position.y = 0.035;
-      const holder = new Group();
-      holder.add(mark);
-      faceHeading(holder, offsetAlong(mid, tangent, along, side), tangent, 0);
-      group.add(holder);
-    }
+  // Taxiway linking the runway to the apron, then the apron itself.
+  const taxiway = new Mesh(
+    new BoxGeometry(APRON_NEAR - SHOULDER_HALF_WIDTH, 0.045, TAXIWAY_HALF_WIDTH * 2.4),
+    apronConcrete,
+  );
+  taxiway.receiveShadow = true;
+  faceHeading(
+    taxiway,
+    offsetAlong(mid, tangent, APRON_ALONG_CENTRE, (SHOULDER_HALF_WIDTH + APRON_NEAR) / 2),
+    tangent,
+    0.052,
+  );
+  group.add(taxiway);
+
+  const apron = new Mesh(
+    new BoxGeometry(APRON_DEPTH, 0.045, APRON_ALONG_END - APRON_ALONG_START),
+    apronConcrete,
+  );
+  apron.receiveShadow = true;
+  // Lead-in line from the taxiway, and two parking stands.
+  const lead = new Mesh(new BoxGeometry(APRON_DEPTH * 0.62, 0.01, 0.035), apronPaint);
+  lead.position.set(-APRON_DEPTH * 0.12, 0.028, 0);
+  apron.add(lead);
+  for (const z of [-1.05, 1.05]) {
+    const stand = new Mesh(new BoxGeometry(0.52, 0.01, 0.62), apronPaint);
+    stand.position.set(APRON_DEPTH * 0.14, 0.028, z);
+    apron.add(stand);
   }
+  faceHeading(
+    apron,
+    offsetAlong(mid, tangent, APRON_ALONG_CENTRE, (APRON_NEAR + APRON_FAR) / 2),
+    tangent,
+    0.052,
+  );
+  group.add(apron);
 
-  group.add(buildWindsock(offsetAlong(mid, tangent, STRIP_LENGTH / 2, -(STRIP_WIDTH / 2 + 0.12)), tangent));
+  group.add(buildWindsock(offsetAlong(mid, tangent, STRIP_LENGTH / 2 - 0.4, -(SHOULDER_HALF_WIDTH + 0.22)), tangent));
 
-  const terminalAt = offsetAlong(mid, tangent, TERMINAL_ALONG, TERMINAL_SIDE);
+  const terminalAt = offsetAlong(mid, tangent, TERMINAL_ALONG, BUILDING_RADIAL);
   group.add(buildTerminal(terminalAt, site));
-  const towerAt = offsetAlong(terminalAt, tangent, TOWER_ALONG);
+  const towerAt = offsetAlong(mid, tangent, TOWER_ALONG, BUILDING_RADIAL);
   group.add(buildControlTower(towerAt, site));
   root.add(group);
 }
 
-function paintRunway(slab: Mesh): void {
-  const dashCount = Math.round(STRIP_LENGTH * (5 / 1.85));
-  const span = STRIP_LENGTH * 0.62;
-  for (let i = 0; i < dashCount; i++) {
-    const dash = new Mesh(new BoxGeometry(0.028, 0.012, 0.1), runwayPaint);
-    dash.position.set(0, 0.031, -span / 2 + (i * span) / (dashCount - 1));
-    slab.add(dash);
+/** Seven-segment geometry: [x, z, width, depth] in a 1x1 digit cell. */
+const DIGIT_SEGMENTS: [number, number, number, number][] = [
+  [0, 0.5, 0.5, 0.1], // top
+  [0, 0, 0.5, 0.1], // middle
+  [0, -0.5, 0.5, 0.1], // bottom
+  [-0.25, 0.25, 0.1, 0.3], // upper left
+  [0.25, 0.25, 0.1, 0.3], // upper right
+  [-0.25, -0.25, 0.1, 0.3], // lower left
+  [0.25, -0.25, 0.1, 0.3], // lower right
+];
+const DIGIT_SEGMENTS_FOR: Record<string, number[]> = {
+  "0": [0, 2, 3, 4, 5, 6],
+  "1": [4, 6],
+  "2": [0, 1, 2, 4, 5],
+  "3": [0, 1, 2, 4, 6],
+  "4": [0, 1, 3, 4, 6],
+  "5": [0, 1, 2, 3, 6],
+  "6": [0, 1, 2, 3, 5, 6],
+  "7": [0, 4, 6],
+  "8": [0, 1, 2, 3, 4, 5, 6],
+  "9": [0, 1, 2, 3, 4, 6],
+};
+
+/** Runway numbers, drawn from bars and rotated to read on approach. */
+function addRunwayDesignator(slab: Mesh, end: number): void {
+  const text = "27";
+  const scale = 0.62;
+  const cell = 0.5;
+  const width = text.length * cell;
+  const g = new Group();
+  for (let d = 0; d < text.length; d++) {
+    for (const s of DIGIT_SEGMENTS_FOR[text[d]]) {
+      const [sx, sz, sw, sd] = DIGIT_SEGMENTS[s];
+      const seg = new Mesh(new BoxGeometry(sw * scale, 0.012, sd * scale), runwayPaint);
+      seg.position.set(-width / 2 + d * cell + cell / 2 + sx * scale, 0.031, sz * scale);
+      g.add(seg);
+    }
   }
-  for (const z of [-(STRIP_LENGTH / 2 - 0.1), STRIP_LENGTH / 2 - 0.1]) {
-    const barCount = Math.max(6, Math.round((STRIP_WIDTH * 0.7) / 0.088));
-    for (let i = 0; i < barCount; i++) {
-      const bar = new Mesh(new BoxGeometry(0.052, 0.012, 0.028), runwayPaint);
-      bar.position.set((i - (barCount - 1) / 2) * 0.088, 0.031, z);
+  g.position.set(0, 0, end * (STRIP_LENGTH / 2 - 1.05));
+  if (end < 0) g.rotation.y = Math.PI;
+  slab.add(g);
+}
+
+function paintRunway(slab: Mesh): void {
+  const halfLength = STRIP_LENGTH / 2;
+  const halfWidth = STRIP_WIDTH / 2;
+
+  // Threshold markings: a row of bars across each end of the runway.
+  for (const end of [-1, 1]) {
+    const bars = 8;
+    for (let i = 0; i < bars; i++) {
+      const bar = new Mesh(new BoxGeometry(0.075, 0.012, 0.3), runwayPaint);
+      bar.position.set((i - (bars - 1) / 2) * 0.145, 0.031, end * (halfLength - 0.46));
       slab.add(bar);
     }
   }
-  const edgeCount = Math.round(STRIP_LENGTH * (4 / 1.85));
-  const edgeSpan = STRIP_LENGTH * 0.58;
-  for (let i = 0; i < edgeCount; i++) {
-    const z = -edgeSpan / 2 + (i * edgeSpan) / (edgeCount - 1);
-    for (const x of [-STRIP_WIDTH * 0.4, STRIP_WIDTH * 0.4]) {
-      const edge = new Mesh(new BoxGeometry(0.03, 0.01, 0.055), runwayPaint);
-      edge.position.set(x, 0.03, z);
-      slab.add(edge);
+
+  // Centreline dashes.
+  const dashCount = Math.round(STRIP_LENGTH * (5 / 1.85));
+  const span = STRIP_LENGTH * 0.6;
+  for (let i = 0; i < dashCount; i++) {
+    const dash = new Mesh(new BoxGeometry(0.032, 0.012, 0.14), runwayPaint);
+    dash.position.set(0, 0.031, -span / 2 + (i * span) / (dashCount - 1));
+    slab.add(dash);
+  }
+
+  // Touchdown zone markers, either side of the centreline just inside each end.
+  for (const end of [-1, 1]) {
+    for (const zone of [0.72, 1.24]) {
+      for (const x of [-0.36, 0.36]) {
+        const mark = new Mesh(new BoxGeometry(0.24, 0.012, 0.12), runwayPaint);
+        mark.position.set(x, 0.031, end * (halfLength - zone));
+        slab.add(mark);
+      }
     }
   }
+
+  // Edge lines the full length of the runway.
+  for (const x of [-halfWidth + 0.09, halfWidth - 0.09]) {
+    const edge = new Mesh(new BoxGeometry(0.036, 0.012, STRIP_LENGTH * 0.84), runwayPaint);
+    edge.position.set(x, 0.031, 0);
+    slab.add(edge);
+  }
+
+  addRunwayDesignator(slab, -1);
+  addRunwayDesignator(slab, 1);
 }
 
 function addRunwayLights(slab: Mesh): void {
@@ -1661,36 +2048,80 @@ function buildWindsock(at: Ang, tangent: number): Group {
 function buildTerminal(at: Ang, site: Settlement): Group {
   const g = new Group();
   g.name = "airstrip-terminal";
-  const w = 1.08;
-  const d = 0.4;
-  const h = 0.3;
-  const plaster = new MeshStandardMaterial({ color: "#e7e4dc", roughness: 0.55, metalness: 0.03 });
-  const roofMat = new MeshStandardMaterial({ color: "#8b939a", roughness: 0.4, metalness: 0.22 });
+  const w = 1.5;
+  const d = 0.62;
+  const h = 0.44;
+  const plaster = new MeshStandardMaterial({ color: "#e9e6df", roughness: 0.55, metalness: 0.03 });
+  const roofMat = new MeshStandardMaterial({ color: "#7d858c", roughness: 0.42, metalness: 0.24 });
   const trim = new MeshStandardMaterial({ color: "#3d4650", roughness: 0.48, metalness: 0.16 });
   const glass = new MeshStandardMaterial({
     color: "#b5d0d8",
     emissive: "#7eacb8",
-    emissiveIntensity: 0.28,
+    emissiveIntensity: 0.34,
     roughness: 0.07,
     metalness: 0.4,
   });
   const doorMat = new MeshStandardMaterial({ color: "#2c333a", roughness: 0.38, metalness: 0.24 });
+  const signMat = new MeshStandardMaterial({
+    color: "#2f6f8f",
+    emissive: "#1d4f68",
+    emissiveIntensity: 0.5,
+    roughness: 0.4,
+  });
+
   const wall = new Mesh(new BoxGeometry(w, h, d), plaster);
   wall.position.y = h / 2;
   wall.castShadow = true;
   wall.receiveShadow = true;
-  const plinth = new Mesh(new BoxGeometry(w + 0.02, 0.028, d + 0.02), trim);
-  plinth.position.y = 0.014;
-  const roof = new Mesh(new BoxGeometry(w + 0.06, 0.024, d + 0.06), roofMat);
-  roof.position.y = h + 0.012;
-  roof.castShadow = true;
-  const band = new Mesh(new BoxGeometry(w * 0.62, 0.09, 0.016), glass);
-  band.position.set(0.14, h * 0.62, d / 2 + 0.01);
-  const door = new Mesh(new BoxGeometry(0.13, 0.2, 0.016), doorMat);
-  door.position.set(-0.34, 0.1, d / 2 + 0.01);
-  const lite = new Mesh(new BoxGeometry(0.038, 0.11, 0.01), glass);
-  lite.position.set(-0.34, 0.13, d / 2 + 0.018);
-  g.add(wall, plinth, roof, band, door, lite);
+  g.add(wall);
+
+  const plinth = new Mesh(new BoxGeometry(w + 0.04, 0.03, d + 0.04), trim);
+  plinth.position.y = 0.015;
+  g.add(plinth);
+
+  // Gable roof: two slabs meeting at a ridge running the length of the building.
+  const rise = 0.27;
+  const run = (d + 0.14) / 2;
+  const slope = Math.hypot(run, rise);
+  const angle = Math.atan2(rise, run);
+  for (const side of [-1, 1]) {
+    const slab = new Mesh(new BoxGeometry(w + 0.12, 0.028, slope), roofMat);
+    slab.position.set(0, h + rise / 2, side * run / 2);
+    slab.rotation.x = -side * angle;
+    slab.castShadow = true;
+    g.add(slab);
+  }
+  const ridge = new Mesh(new BoxGeometry(w + 0.12, 0.022, 0.07), trim);
+  ridge.position.y = h + rise;
+  g.add(ridge);
+
+  // Glazed frontage facing the apron, divided into bays by mullions.
+  const front = d / 2 + 0.012;
+  const bays = 3;
+  for (let i = 0; i < bays; i++) {
+    const pane = new Mesh(new BoxGeometry(0.36, 0.2, 0.016), glass);
+    pane.position.set((i - (bays - 1) / 2) * 0.44, h * 0.58, front);
+    g.add(pane);
+  }
+  for (let i = 0; i <= bays; i++) {
+    const mullion = new Mesh(new BoxGeometry(0.03, 0.24, 0.02), trim);
+    mullion.position.set((i - bays / 2) * 0.44, h * 0.58, front + 0.004);
+    g.add(mullion);
+  }
+  const door = new Mesh(new BoxGeometry(0.16, 0.26, 0.018), doorMat);
+  door.position.set(0, 0.13, front + 0.004);
+  g.add(door);
+
+  const sign = new Mesh(new BoxGeometry(0.9, 0.11, 0.02), signMat);
+  sign.position.set(0, h - 0.1, front + 0.006);
+  g.add(sign);
+
+  // Canopy over the entrance.
+  const canopy = new Mesh(new BoxGeometry(0.7, 0.02, 0.3), trim);
+  canopy.position.set(0, h * 0.52, front + 0.16);
+  canopy.rotation.x = -0.12;
+  g.add(canopy);
+
   const placed = placeOnSurface(at.theta, at.phi, 0);
   const village = placeOnSurface(site.theta, site.phi, 0);
   orient(g, placed.pos, placed.up, yawToward(placed.up, village.pos.clone().sub(placed.pos)));
@@ -1700,36 +2131,68 @@ function buildTerminal(at: Ang, site: Settlement): Group {
 function buildControlTower(at: Ang, site: Settlement): Group {
   const g = new Group();
   g.name = "airstrip-control-tower";
-  g.scale.y = 2;
-  const plaster = new MeshStandardMaterial({ color: "#e7e4dc", roughness: 0.55, metalness: 0.03 });
+  const plaster = new MeshStandardMaterial({ color: "#e9e6df", roughness: 0.55, metalness: 0.03 });
   const trim = new MeshStandardMaterial({ color: "#3d4650", roughness: 0.48, metalness: 0.16 });
-  const roofMat = new MeshStandardMaterial({ color: "#8b939a", roughness: 0.4, metalness: 0.22 });
+  const roofMat = new MeshStandardMaterial({ color: "#7d858c", roughness: 0.42, metalness: 0.24 });
   const glass = new MeshStandardMaterial({
-    color: "#b5d0d8",
-    emissive: "#7eacb8",
-    emissiveIntensity: 0.28,
-    roughness: 0.07,
-    metalness: 0.4,
+    color: "#a9cdd8",
+    emissive: "#8fc4d6",
+    emissiveIntensity: 0.42,
+    roughness: 0.06,
+    metalness: 0.42,
   });
-  const base = new Mesh(new BoxGeometry(0.34, 0.48, 0.32), trim);
-  base.position.y = 0.24;
-  const cab = new Mesh(new BoxGeometry(0.3, 0.18, 0.3), plaster);
-  cab.position.y = 0.57;
-  const windows = new Mesh(new BoxGeometry(0.26, 0.08, 0.012), glass);
-  windows.position.set(0, 0.59, 0.156);
-  const roof = new Mesh(new BoxGeometry(0.38, 0.04, 0.36), roofMat);
-  roof.position.y = 0.68;
-  const pole = new Mesh(new CylinderGeometry(0.01, 0.014, 0.24, 5), trim);
-  pole.position.set(0, 0.82, 0);
-  const flag = new Mesh(new PlaneGeometry(0.18, 0.1, 8, 4), createBlueFlagMaterial(0.18, 0.055));
-  flag.position.set(0.09, 0.88, 0);
-  flag.name = "airstrip-flag";
-  flag.castShadow = false;
-  for (const part of [base, cab, windows, roof, pole, flag]) {
-    part.castShadow = part !== flag;
-    part.receiveShadow = true;
-    g.add(part);
+
+  // Plinth, then a shaft with a collar at the top of it.
+  const plinth = new Mesh(new BoxGeometry(0.46, 0.08, 0.46), trim);
+  plinth.position.y = 0.04;
+  g.add(plinth);
+
+  const shaftH = 1.34;
+  const shaft = new Mesh(new BoxGeometry(0.32, shaftH, 0.32), plaster);
+  shaft.position.y = shaftH / 2 + 0.06;
+  shaft.castShadow = true;
+  g.add(shaft);
+
+  const collar = new Mesh(new BoxGeometry(0.44, 0.06, 0.44), trim);
+  collar.position.y = shaftH + 0.06;
+  g.add(collar);
+
+  // Cab: a mullioned core with a glazed pane on each of the four faces.
+  const cabY = shaftH + 0.09;
+  const cabH = 0.46;
+  const cabW = 0.74;
+  const core = new Mesh(new BoxGeometry(cabW, cabH, cabW), trim);
+  core.position.y = cabY + cabH / 2;
+  g.add(core);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    const pane = new Mesh(new BoxGeometry(cabW * 0.8, cabH * 0.62, 0.02), glass);
+    pane.position.set(Math.sin(a) * (cabW / 2), cabY + cabH / 2, Math.cos(a) * (cabW / 2));
+    pane.rotation.y = a;
+    g.add(pane);
   }
+
+  // Overhanging roof, then the mast and beacon above it.
+  const roof = new Mesh(new BoxGeometry(cabW + 0.14, 0.05, cabW + 0.14), roofMat);
+  roof.position.y = cabY + cabH + 0.025;
+  roof.castShadow = true;
+  g.add(roof);
+
+  const mast = new Mesh(new CylinderGeometry(0.011, 0.015, 0.42, 5), trim);
+  mast.position.y = cabY + cabH + 0.26;
+  g.add(mast);
+
+  const beaconMat = new MeshStandardMaterial({
+    color: "#ff6a55",
+    emissive: "#ff3a26",
+    emissiveIntensity: 2.4,
+    roughness: 0.35,
+  });
+  const beacon = new Mesh(new SphereGeometry(0.038, 8, 6), beaconMat);
+  beacon.position.y = cabY + cabH + 0.5;
+  beacon.name = "tower-beacon";
+  g.add(beacon);
+
   const placed = placeOnSurface(at.theta, at.phi, 0);
   const village = placeOnSurface(site.theta, site.phi, 0);
   orient(g, placed.pos, placed.up, yawToward(placed.up, village.pos.clone().sub(placed.pos)));
@@ -1996,25 +2459,115 @@ function createBlueFlagMaterial(width: number, wave: number): MeshStandardMateri
 function createShrine(): Group {
   const g = new Group();
   const stone = new MeshStandardMaterial({ color: "#9a9186", roughness: 0.86 });
-  const base = new Mesh(new CylinderGeometry(0.28, 0.32, 0.12, 8), stone);
-  const menhir = new Mesh(new BoxGeometry(0.12, 0.7, 0.08), stone);
-  menhir.position.y = 0.4;
-  const crystal = new Mesh(
-    new ConeGeometry(0.09, 0.28, 5),
+  const crystalMat = new MeshStandardMaterial({
+    color: "#d7b6ff",
+    emissive: "#b388ff",
+    emissiveIntensity: 1.2,
+    roughness: 0.25,
+  });
+
+  // 3x scale — everything grows around the same ground point
+  const SCALE = 3;
+
+  // Base: wider, taller, with a subtle step
+  const base = new Mesh(
+    new CylinderGeometry(0.28 * SCALE, 0.32 * SCALE, 0.12 * SCALE, 12),
+    stone,
+  );
+  const baseStep = new Mesh(
+    new CylinderGeometry(0.35 * SCALE, 0.42 * SCALE, 0.06 * SCALE, 12),
+    stone,
+  );
+  baseStep.position.y = -0.06 * SCALE;
+
+  // Menhir: the central standing stone
+  const menhir = new Mesh(
+    new BoxGeometry(0.12 * SCALE, 0.7 * SCALE, 0.08 * SCALE),
+    stone,
+  );
+  menhir.position.y = 0.35 * SCALE;
+
+  // Cap stone on the menhir
+  const cap = new Mesh(
+    new BoxGeometry(0.16 * SCALE, 0.08 * SCALE, 0.12 * SCALE),
+    stone,
+  );
+  cap.position.y = 0.7 * SCALE;
+
+  // Main crystal atop the menhir
+  const mainCrystal = new Mesh(
+    new ConeGeometry(0.09 * SCALE, 0.28 * SCALE, 6),
+    crystalMat,
+  );
+  mainCrystal.position.y = 0.74 * SCALE;
+
+  // Ring of six crystals around the base step
+  const ringCrystals: Mesh[] = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (i / 6) * Math.PI * 2;
+    const c = new Mesh(
+      new ConeGeometry(0.05 * SCALE, 0.16 * SCALE, 5),
+      crystalMat,
+    );
+    c.position.set(
+      Math.cos(angle) * 0.5 * SCALE,
+      0.02 * SCALE,
+      Math.sin(angle) * 0.5 * SCALE,
+    );
+    ringCrystals.push(c);
+  }
+
+  // Two flanking crystals at mid-height
+  const sideA = new Mesh(
+    new ConeGeometry(0.05 * SCALE, 0.16 * SCALE, 5),
+    crystalMat,
+  );
+  sideA.position.set(0.22 * SCALE, 0.16 * SCALE, 0.08 * SCALE);
+  const sideB = new Mesh(
+    new ConeGeometry(0.04 * SCALE, 0.12 * SCALE, 5),
+    crystalMat,
+  );
+  sideB.position.set(-0.18 * SCALE, 0.12 * SCALE, -0.1 * SCALE);
+
+  // Lantern: a warm diffused glow at the front of the shrine
+  const lanternFrame = new Mesh(
+    new CylinderGeometry(0.06 * SCALE, 0.08 * SCALE, 0.18 * SCALE, 8, 1, true),
+    new MeshStandardMaterial({ color: "#3d2a1e", roughness: 0.7, metalness: 0.3 }),
+  );
+  lanternFrame.position.set(0, 0.1 * SCALE, 0.55 * SCALE);
+
+  const lanternGlass = new Mesh(
+    new CylinderGeometry(0.05 * SCALE, 0.07 * SCALE, 0.14 * SCALE, 8, 1, true),
     new MeshStandardMaterial({
-      color: "#d7b6ff",
-      emissive: "#b388ff",
-      emissiveIntensity: 1.2,
-      roughness: 0.25,
+      color: "#ffd8a8",
+      emissive: "#ffb860",
+      emissiveIntensity: 0.6,
+      roughness: 0.1,
+      transparent: true,
+      opacity: 0.35,
+      side: DoubleSide,
     }),
   );
-  crystal.position.y = 0.55;
-  const gemMat = crystal.material as MeshStandardMaterial;
-  const sideA = new Mesh(new ConeGeometry(0.05, 0.16, 5), gemMat);
-  sideA.position.set(0.22, 0.16, 0.08);
-  const sideB = new Mesh(new ConeGeometry(0.04, 0.12, 5), gemMat);
-  sideB.position.set(-0.18, 0.12, -0.1);
-  g.add(base, menhir, crystal, sideA, sideB);
+  lanternGlass.position.set(0, 0.1 * SCALE, 0.55 * SCALE);
+
+  const lanternLight = new PointLight("#ffb860", 1.8, 3.5 * SCALE, 1.8);
+  lanternLight.position.set(0, 0.1 * SCALE, 0.55 * SCALE);
+  lanternLight.castShadow = false;
+
+  g.add(
+    base,
+    baseStep,
+    menhir,
+    cap,
+    mainCrystal,
+    sideA,
+    sideB,
+    ...ringCrystals,
+    lanternFrame,
+    lanternGlass,
+    lanternLight,
+  );
+
   const { pos, up } = placeOnSurface(SITES.shrine.theta, SITES.shrine.phi, 0);
   orient(g, pos, up, 0.6);
   return g;
@@ -2172,7 +2725,7 @@ function bakeCottages(root: Group): void {
     else if (mesh.userData.role === "cottage-roof") roofs.push(mesh);
     else if (mesh.userData.role === "cottage-window") windows.push(mesh);
   });
-  const wallMat = new MeshStandardMaterial({ color: "#d8c7a6", roughness: 0.88 });
+  const wallMat = new MeshStandardMaterial({ color: WALL_COLOR, roughness: 0.88 });
   const roofMat = new MeshStandardMaterial({ color: "#ffffff", roughness: 0.78 });
   const pane = new MeshStandardMaterial({
     color: "#f6d789",
@@ -2187,7 +2740,7 @@ function bakeCottages(root: Group): void {
     false,
   );
   const wallMesh = bakeScaled(walls, new BoxGeometry(1, 1, 1), wallMat, true, false);
-  const roofMesh = bakeScaled(roofs, new ConeGeometry(1, 1, 4), roofMat, true, true);
+  const roofMesh = bakeScaled(roofs, createHipRoofGeometry(), roofMat, true, true);
   const windowMesh = bakeScaled(windows, new BoxGeometry(1, 1, 1), pane, false, false);
   if (foundationMesh) {
     foundationMesh.name = "cottage-foundations";
@@ -2225,10 +2778,13 @@ function bakeScaled(
   const geos = new Set<BufferGeometry>();
   const mats = new Set<MeshStandardMaterial>();
   meshes.forEach((mesh, i) => {
-    const params = (mesh.geometry as BoxGeometry | ConeGeometry).parameters;
-    const sx = "width" in params ? params.width : params.radius;
-    const sy = params.height;
-    const sz = "depth" in params ? params.depth : params.radius;
+    const geo = mesh.geometry;
+    if (!geo) return;
+    const params = (geo as BoxGeometry | ConeGeometry).parameters ?? {};
+    // For custom BufferGeometry (hip roofs) use cone's radius/height as fallback.
+    const sx = "width" in params ? params.width : (params.radius ?? (geo as any).radius ?? 1);
+    const sy = (geo as any).height ?? params.height ?? 1;
+    const sz = "depth" in params ? params.depth : (params.radius ?? (geo as any).radius ?? 1);
     cottageWorld.copy(mesh.matrixWorld).multiply(cottageScale.makeScale(sx, sy, sz));
     inst.setMatrixAt(i, cottageWorld);
     if (tint) inst.setColorAt(i, (mesh.material as MeshStandardMaterial).color);
