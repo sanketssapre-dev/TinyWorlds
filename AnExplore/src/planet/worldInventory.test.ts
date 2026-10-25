@@ -38,14 +38,14 @@ describe("world inventory", () => {
 
   it("plants the same stand of trees", () => {
     const c = byColour(build());
-    // 781 conifers, 375 broadleaf, 167 birch.
-    expect(c.get("234a36")).toBe(781);
-    expect(c.get("8aa86e")).toBe(167);
-    expect((c.get("2f5a38") ?? 0) + (c.get("3f6b3c") ?? 0) + (c.get("5a7040") ?? 0)).toBe(375);
+    // 761 conifers, 361 broadleaf, 162 birch.
+    expect(c.get("234a36")).toBe(761);
+    expect(c.get("8aa86e")).toBe(162);
+    expect((c.get("2f5a38") ?? 0) + (c.get("3f6b3c") ?? 0) + (c.get("5a7040") ?? 0)).toBe(361);
     // One trunk per tree.
-    expect((c.get("4a3428") ?? 0) + (c.get("cbb89a") ?? 0)).toBe(1323);
+    expect((c.get("4a3428") ?? 0) + (c.get("cbb89a") ?? 0)).toBe(1284);
     // One darker underlayer per broadleaf crown.
-    expect(c.get("2a4e36")).toBe(375);
+    expect(c.get("2a4e36")).toBe(361);
   });
 
   it("keeps the ground cover and fencing", () => {
@@ -58,10 +58,9 @@ describe("world inventory", () => {
     root.traverse((node: any) => {
       if (node.isInstancedMesh && node.name) named.set(node.name, (named.get(node.name) ?? 0) + node.count);
     });
-    expect(named.get("fence-posts")).toBe(125);
-    expect(named.get("fence-rails")).toBe(238);
-    expect(named.get("wheat-stalks")).toBe(1496);
-    expect(named.get("wheat-heads")).toBe(1496);
+    expect(named.get("fence-posts")).toBe(179);
+    expect(named.get("fence-rails")).toBe(519);
+    expect(named.get("rice-clumps")).toBe(1496);
   });
 
   it("has one of each landmark", () => {
@@ -76,7 +75,7 @@ describe("world inventory", () => {
       "natural-moons",
       "scenery",
       "villages",
-      "wheat-field",
+      "rice-field",
       "grazing-sheep",
       "windmill",
       "landing-strip",
