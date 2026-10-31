@@ -59,6 +59,7 @@ export function indexPlanetSurface(geo: BufferGeometry): PlanetSurface {
         for (let dp = -2; dp <= 2; dp++) {
           const p2 = (pi + dp + PHI_BINS) % PHI_BINS;
           const list = bins[t2 * PHI_BINS + p2];
+          if (!list) continue;
           for (let n = 0; n < list.length; n++) {
             const tri = list[n];
             if (seen[tri] === stamp) continue;

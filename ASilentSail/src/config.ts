@@ -1,51 +1,87 @@
-/** Central scene scale and sail world constants. */
+/** Swiss Alps Sail world — enlarged planet, realistic Moon spacing. */
 
 export const PLANET = {
-  radius: 45,
-  diameter: 90,
-  atmosphereRadius: 1150,
-  maxHeight: 9.2,
-  minHeight: -2.4,
+  /** Large enough that Alpine relief is surface detail, not the whole silhouette. */
+  radius: 96,
+  diameter: 192,
+  atmosphereRadius: 1600,
+  /** ~12% of radius — mountains up close, a round limb from orbit. */
+  maxHeight: 12,
+  minHeight: -1.2,
 } as const;
 
 export const ATMOSPHERE = {
-  fadeStart: 72,
-  fadeEnd: 160,
+  fadeStart: 100,
+  fadeEnd: 220,
+} as const;
+
+export const TRAIN = {
+  locomotiveLength: 3.4,
+  carriageLength: 2.5,
+  carriageGap: 0.16,
+  /** World units per second along arc length. */
+  cruiseSpeed: 0.55,
+  /** Driving-wheel radius. Wheel spin uses this so the rims match the ground speed. */
+  wheelRadius: 0.17,
+} as const;
+
+export const TRACK = {
+  gauge: 0.34,
+  railRadius: 0.05,
+  sleeperSpacing: 0.24,
+  sleeperWidth: 0.52,
+  sleeperLength: 0.1,
+  sleeperHeight: 0.04,
+  ballastWidth: 1.45,
+  bedOffset: 0.12,
+  pierSpacing: 2.1,
+  elevatedThreshold: 0.85,
+  tunnelClearance: 2.4,
 } as const;
 
 export const SUN = {
   direction: [90, 55, 35] as const,
-  distance: 5000,
-  radius: 27,
-  glowDiameter: 210,
+  distance: 6000,
+  radius: 32,
+  glowDiameter: 240,
 } as const;
 
+/** Single lunar companion — Earth-ish proportions, cinematic distance. */
 export const MOON = {
-  radius: 4.8,
-  secondScale: 0.96,
-  smallerOrbitDistance: PLANET.diameter,
-  largerOrbitDistance: PLANET.diameter * 1.5,
+  /** ~1/3.7 of planet radius (Earth ratio), readable at miniature scale. */
+  radius: 26,
+  /** ~4.5 planet radii — farther than the old dual-moon setup. */
+  orbitDistance: PLANET.radius * 4.5,
+  /** North-east of the initial framing. */
+  direction: [0.62, 0.28, 0.72] as const,
 } as const;
 
 export const STARFIELD = {
-  count: 1800,
-  innerRadius: 800,
-  outerRadius: 1200,
+  count: 2200,
+  innerRadius: 1100,
+  outerRadius: 1700,
 } as const;
 
 export const CAMERA = {
-  fov: 42,
-  near: 0.15,
-  far: 6000,
-  followDistance: 8.4,
-  followHeight: 3.6,
-  lookAhead: 4.8,
-  overheadDistance: 40,
-  minZoom: 8.064,
-  maxZoom: 40.8,
-  maxOverheadZoom: 367.2,
-  minOverheadZoom: 30.8,
-  damping: 2.4,
+  fov: 58,
+  near: 0.2,
+  far: 8000,
+  followDistance: 16,
+  followHeight: 7.2,
+  lookAhead: 16,
+  /** Wide Free Planet Spin framing — planet disk + Moon readable. */
+  /** Far enough that the full disk sits in space, not a curved wall. */
+  spinDistance: 520,
+  minSpinZoom: 240,
+  maxSpinZoom: 980,
+  damping: 2.6,
+  /** Ambient Free Planet Spin rate (rad/s). ~one turn every ~3 minutes. */
+  planetSpinRate: 0.035,
+} as const;
+
+export const WATER = {
+  /** Alpine lake surface height above mean sphere (local basin floor sits below). */
+  lakeLevelBias: 0.15,
 } as const;
 
 export const DEBUG = {
@@ -53,24 +89,3 @@ export const DEBUG = {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("pathdebug"),
 };
-
-/** Height offset (same units as terrain) for the risen ocean. */
-export const WATER_LEVEL = 3.05;
-
-export const SAIL = {
-  /** Hull origin sits this far above the flood plane so swell stays on the topsides. */
-  draft: 3.35,
-  /** Guest cruise. Hero runs at speed * heroMul. */
-  speed: 0.84,
-  heroMul: 1.5,
-  minSpeed: 0.4,
-  maxSpeed: 1.32,
-  yieldDistance: 5.6,
-  hullClear: 3.5,
-  lookAhead: 7.5,
-  islandClearance: 1.2,
-  passRange: 7.8,
-  passOffset: 3.4,
-  passClear: 3.2,
-  passHoldAstern: 7.6,
-} as const;

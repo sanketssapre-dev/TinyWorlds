@@ -1,4 +1,4 @@
-import { PLANET, WATER_LEVEL } from "../config";
+import { PLANET } from "../config";
 import { fbm3 } from "../math/noise";
 import { angularDistance, sphToCart } from "../math/sphere";
 import { SITES } from "./features";
@@ -15,87 +15,109 @@ function blob(
   return amplitude * Math.exp(-(d * d) / (2 * sigma * sigma));
 }
 
-function baseTerrainHeight(theta: number, phi: number): number {
+/** A peak broken into couloirs so the skyline is not a smooth dome. */
+function jagged(
+  theta: number,
+  phi: number,
+  siteTheta: number,
+  sitePhi: number,
+  sigma: number,
+  amplitude: number,
+): number {
+  const d = angularDistance(theta, phi, siteTheta, sitePhi);
+  const mask = Math.exp(-(d * d) / (2 * sigma * sigma));
+  if (mask < 0.015) return 0;
   const p = sphToCart(1, theta, phi);
-  const continents = fbm3(p.x * 1.6, p.y * 1.6, p.z * 1.6, 5, 2.05, 0.52, 11);
-  const ridges = Math.abs(fbm3(p.x * 2.4, p.y * 2.4, p.z * 2.4, 4, 2.1, 0.48, 41));
-  const detail = fbm3(p.x * 6.2, p.y * 6.2, p.z * 6.2, 3, 2.2, 0.5, 73);
-  const roll = fbm3(p.x * 3.3, p.y * 3.3, p.z * 3.3, 3, 2.1, 0.5, 19);
-
-  let h = 0.85 + continents * 2.05 + ridges * 0.75 + roll * 0.7 + detail * 0.32;
-
-  h += blob(theta, phi, SITES.peakNorth.theta, SITES.peakNorth.phi, 0.28, 6.8);
-  h += blob(theta, phi, SITES.peakWest.theta, SITES.peakWest.phi, 0.22, 5.4);
-  h += blob(theta, phi, SITES.peakEast.theta, SITES.peakEast.phi, 0.2, 4.6);
-  h += blob(theta, phi, SITES.cliff.theta, SITES.cliff.phi, 0.18, 3.2);
-  h += blob(theta, phi, SITES.castle.theta, SITES.castle.phi, 0.12, 1.6);
-
-  h -= blob(theta, phi, SITES.lake.theta, SITES.lake.phi, 0.25, 5.0);
-  h -= blob(theta, phi, SITES.lake2.theta, SITES.lake2.phi, 0.16, 3.6);
-  h -= blob(theta, phi, SITES.pool.theta, SITES.pool.phi, 0.1, 2.4);
-
-  h += blob(theta, phi, SITES.village.theta, SITES.village.phi, 0.16, 0.85);
-  h += blob(theta, phi, SITES.ancientTree.theta, SITES.ancientTree.phi, 0.14, 0.7);
-
-  return Math.max(PLANET.minHeight, Math.min(PLANET.maxHeight, h));
+  const jag = Math.pow(Math.abs(fbm3(p.x * 14.0, p.y * 14.0, p.z * 14.0, 3, 2.1, 0.55, 17)), 0.55);
+  return mask * amplitude * (0.42 + jag);
 }
 
-/** Village rings from the original globe — raised into islands here. */
-export const SETTLEMENT_ISLANDS = [
-  { theta: SITES.village.theta, phi: SITES.village.phi, sigma: 0.18, amp: 3.4 },
-  { theta: 1.36, phi: 1.82, sigma: 0.16, amp: 3.2 },
-  { theta: 1.55, phi: 3.15, sigma: 0.16, amp: 3.1 },
-  { theta: 1.36, phi: 4.62, sigma: 0.15, amp: 3.0 },
-  { theta: 1.52, phi: 5.58, sigma: 0.16, amp: 3.2 },
-] as const;
-
-export const LANDMARK_ISLANDS = [
-  { theta: SITES.castle.theta, phi: SITES.castle.phi, sigma: 0.18, amp: 2.2 },
-  { theta: SITES.shrine.theta, phi: SITES.shrine.phi, sigma: 0.13, amp: 1.7 },
-  { theta: SITES.tower.theta, phi: SITES.tower.phi, sigma: 0.12, amp: 1.6 },
-  { theta: SITES.ancientTree.theta, phi: SITES.ancientTree.phi, sigma: 0.15, amp: 2.0 },
-] as const;
-
-export const NAV_ISLANDS = [...SETTLEMENT_ISLANDS, ...LANDMARK_ISLANDS];
-
-const ISLAND_FLOOR = WATER_LEVEL + 1.55;
-
-/** Flooded globe: settlements and landmarks lifted into islands. */
+/** Alpine elevation on the sphere — peaks, valleys, lakes, meadows. */
 export function heightOffset(theta: number, phi: number): number {
-  let h = baseTerrainHeight(theta, phi);
-  for (const site of SETTLEMENT_ISLANDS) {
-    h += blob(theta, phi, site.theta, site.phi, site.sigma, site.amp);
+  const p = sphToCart(1, theta, phi);
+  const continents = fbm3(p.x * 1.35, p.y * 1.35, p.z * 1.35, 5, 2.05, 0.52, 11);
+  const ridgeRaw = Math.abs(fbm3(p.x * 2.8, p.y * 2.8, p.z * 2.8, 5, 2.15, 0.5, 41));
+  const ridges = Math.pow(ridgeRaw, 0.62);
+  const detail = fbm3(p.x * 7.5, p.y * 7.5, p.z * 7.5, 3, 2.2, 0.5, 73);
+  const roll = fbm3(p.x * 3.1, p.y * 3.1, p.z * 3.1, 3, 2.1, 0.5, 19);
+
+  let h = 0.35 + continents * 0.85 + ridges * 1.05 + roll * 0.28 + detail * 0.16;
+
+  h += blob(theta, phi, SITES.peakMatter.theta, SITES.peakMatter.phi, 0.32, 5.2);
+  h += blob(theta, phi, SITES.peakEiger.theta, SITES.peakEiger.phi, 0.28, 4.6);
+  h += blob(theta, phi, SITES.peakJung.theta, SITES.peakJung.phi, 0.26, 4.2);
+  h += blob(theta, phi, SITES.peakSouth.theta, SITES.peakSouth.phi, 0.3, 3.8);
+  h += blob(theta, phi, SITES.peakFar.theta, SITES.peakFar.phi, 0.24, 3.4);
+  h += blob(theta, phi, SITES.cliffFace.theta, SITES.cliffFace.phi, 0.18, 2.2);
+
+  h -= blob(theta, phi, SITES.lakeGeneva.theta, SITES.lakeGeneva.phi, 0.2, 3.4);
+  h -= blob(theta, phi, SITES.lakeBrienz.theta, SITES.lakeBrienz.phi, 0.16, 3.0);
+  h -= blob(theta, phi, SITES.pondAlp.theta, SITES.pondAlp.phi, 0.09, 2.0);
+  h -= blob(theta, phi, SITES.lakeThun.theta, SITES.lakeThun.phi, 0.2, 3.6);
+  h -= blob(theta, phi, SITES.lakeLucerne.theta, SITES.lakeLucerne.phi, 0.17, 3.2);
+  h -= blob(theta, phi, SITES.lakeMaggiora.theta, SITES.lakeMaggiora.phi, 0.16, 3.0);
+
+  h += blob(theta, phi, SITES.villageA.theta, SITES.villageA.phi, 0.14, 1.1);
+  h += blob(theta, phi, SITES.villageB.theta, SITES.villageB.phi, 0.14, 1.0);
+  h += blob(theta, phi, SITES.villageC.theta, SITES.villageC.phi, 0.13, 0.95);
+  h += blob(theta, phi, SITES.meadowA.theta, SITES.meadowA.phi, 0.2, 0.55);
+
+  // Peaks stand off the rails. Amplitudes stay under the height cap so the
+  // ridge noise is not sliced into a plateau.
+  h += jagged(theta, phi, 0.78, 0.12, 0.09, 8.5);
+  h += jagged(theta, phi, 1.48, 0.18, 0.08, 7.5);
+  h += jagged(theta, phi, 0.92, 0.2, 0.08, 9);
+  h += jagged(theta, phi, 1.34, 0.22, 0.07, 7.5);
+  h += jagged(theta, phi, 1.02, 0.2, 0.11, 8);
+  h += blob(theta, phi, 0.7, 0.75, 0.17, 10);
+  h += blob(theta, phi, 1.68, 0.85, 0.15, 8.5);
+  h += blob(theta, phi, 0.68, 1.45, 0.16, 9);
+  h += blob(theta, phi, 1.7, 1.5, 0.14, 7.5);
+
+  // Narrow grass floor under the circuit so the train sits in a valley.
+  const route: Array<[number, number]> = [
+    [1.18, 0.0], [1.12, 0.35], [1.22, 0.72], [1.36, 0.95], [1.42, 1.2],
+    [1.28, 1.55], [1.1, 1.85], [0.98, 2.15], [1.08, 2.45], [1.26, 2.7],
+    [1.38, 3.05], [1.3, 3.4], [1.05, 3.75], [0.95, 4.05], [1.15, 4.4],
+    [1.28, 4.75], [1.2, 5.15], [1.1, 5.5], [1.22, 5.85], [1.3, 6.1],
+  ];
+  let carve = 0;
+  for (let i = 0; i < route.length; i++) {
+    const aT = route[i][0];
+    const aP = route[i][1];
+    const b = route[(i + 1) % route.length];
+    let bP = b[1] <= aP ? b[1] + Math.PI * 2 : b[1];
+    const span = bP - aP;
+    const steps = Math.max(1, Math.round(span / 0.05));
+    for (let s = 0; s < steps; s++) {
+      const u = s / steps;
+      let p = aP + span * u;
+      if (p > Math.PI * 2) p -= Math.PI * 2;
+      const d = angularDistance(theta, phi, aT + (b[0] - aT) * u, p);
+      if (d > 0.24) continue;
+      carve = Math.max(carve, Math.exp(-(d * d) / (2 * 0.085 * 0.085)));
+    }
   }
-  for (const site of LANDMARK_ISLANDS) {
-    h += blob(theta, phi, site.theta, site.phi, site.sigma, site.amp);
-  }
+  h -= carve * 3.6;
 
-  for (const site of NAV_ISLANDS) {
-    const d = angularDistance(theta, phi, site.theta, site.phi);
-    if (d > site.sigma * 1.8) continue;
-    const falloff = Math.exp(-(d * d) / (site.sigma * site.sigma));
-    if (h < ISLAND_FLOOR) h += (ISLAND_FLOOR - h) * falloff;
-  }
+  // Grain the mesh can actually resolve — pebbles and turf, not a new mountain.
+  const grain = fbm3(p.x * 36.0, p.y * 36.0, p.z * 36.0, 2, 2.05, 0.5, 101);
+  h += grain * 0.14;
 
-  return Math.max(PLANET.minHeight, Math.min(PLANET.maxHeight + 2.8, h));
+  return shapeHeight(h);
 }
 
-export function surfaceRadius(theta: number, phi: number): number {
-  return PLANET.radius + heightOffset(theta, phi);
+function shapeHeight(h: number): number {
+  const cap = PLANET.maxHeight;
+  const knee = cap * 0.82;
+  if (h <= knee) return Math.max(PLANET.minHeight, h);
+  const extra = cap - knee;
+  return knee + extra * (1 - Math.exp(-(h - knee) / extra));
 }
 
-export function isDryLand(theta: number, phi: number, margin = 0.12): boolean {
-  return heightOffset(theta, phi) > WATER_LEVEL + margin;
-}
-
-export function waterSurfaceRadius(): number {
-  return PLANET.radius + WATER_LEVEL;
-}
-
-export function slopeMagnitude(theta: number, phi: number): number {
-  const eps = 0.012;
-  const h = heightOffset(theta, phi);
-  const dTheta = (heightOffset(theta + eps, phi) - h) / eps;
-  const dPhi = (heightOffset(theta, phi + eps) - h) / (eps * Math.max(0.2, Math.sin(theta)));
-  return Math.hypot(dTheta, dPhi);
+/** Soft snow-line factor 0..1 from elevation and latitude-ish theta. */
+export function snowFactor(theta: number, height: number): number {
+  const altitude = (height - 4.5) / 6;
+  const polar = 1 - Math.sin(theta);
+  return Math.max(0, Math.min(1, altitude * 0.85 + polar * 0.25));
 }

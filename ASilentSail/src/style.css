@@ -17,8 +17,8 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #05060d;
-  font-family: "Palatino Linotype", Palatino, "Times New Roman", serif;
+  background: #04050a;
+  font-family: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   color: var(--ink);
 }
 
@@ -59,26 +59,17 @@ body,
   position: absolute;
   left: 1.4rem;
   bottom: 1.4rem;
+  z-index: 5;
   pointer-events: none;
   font-size: clamp(0.7rem, 1.2vw, 0.92rem);
   text-align: left;
-}
-
-.mode,
-.hints,
-.speed span {
-  margin: 0;
-  color: var(--muted);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  font-family: "Segoe UI", system-ui, sans-serif;
 }
 
 .scene-controls {
   position: absolute;
   right: 1.4rem;
   bottom: 1.4rem;
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -105,21 +96,6 @@ body,
   stroke: none;
 }
 
-.panel {
-  pointer-events: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem 1rem;
-  align-items: center;
-  width: fit-content;
-  max-width: min(92vw, 46rem);
-  padding: 0.75rem 0.9rem;
-  background: var(--panel);
-  border: 1px solid rgba(212, 179, 106, 0.22);
-  border-radius: 999px;
-  backdrop-filter: blur(10px);
-}
-
 .btn {
   appearance: none;
   border: 1px solid rgba(232, 223, 200, 0.2);
@@ -139,83 +115,58 @@ body,
   outline: none;
 }
 
-.speed {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-.speed input {
-  width: 8rem;
-  accent-color: var(--gold);
-}
-
-.hints {
-  margin-top: 0.65rem;
-  max-width: 36rem;
-  line-height: 1.5;
-  transition: opacity 1.4s ease;
-}
-
-.hints.fade {
-  opacity: 0.18;
-}
-
-#loader[hidden],
-#error[hidden] {
-  display: none !important;
-}
-
-#loader,
-#error {
+#loader {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at center, #141826 0%, #05060d 70%);
-  z-index: 5;
+  background: #04050a;
+  z-index: 2;
+}
+
+#loader[hidden] {
+  display: none;
 }
 
 .title-frame {
   position: relative;
+  padding: 2.2rem 2.8rem;
+}
+
+.title-frame .flight-title {
+  margin: 0;
+  font-size: clamp(1.2rem, 2.6vw, 1.85rem);
+  letter-spacing: 0.08em;
   text-align: center;
-  padding: 2.5rem 3rem;
-  min-width: 10rem;
 }
 
-.title-frame .corner {
+.corner {
   position: absolute;
-  width: 2rem;
-  height: 2rem;
-  display: grid;
-  place-items: center;
+  width: 22px;
+  height: 22px;
 }
 
-.title-frame .c-tl {
-  top: 0.7rem;
-  left: 0.7rem;
-}
-
-.title-frame .c-tr {
-  top: 0.7rem;
-  right: 0.7rem;
-}
-
-.title-frame .c-bl {
-  bottom: 0.7rem;
-  left: 0.7rem;
-}
-
-.title-frame .c-br {
-  bottom: 0.7rem;
-  right: 0.7rem;
-}
+.c-tl { top: 0; left: 0; }
+.c-tr { top: 0; right: 0; transform: scaleX(-1); }
+.c-bl { bottom: 0; left: 0; transform: scaleY(-1); }
+.c-br { bottom: 0; right: 0; transform: scale(-1); }
 
 #error {
-  text-align: center;
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
   padding: 2rem;
-  color: #f3c2c2;
   white-space: pre-wrap;
+  text-align: center;
+  background: #04050a;
+  z-index: 3;
+  color: #e8b4b4;
+}
+
+/* Must win over [hidden] — a bare `display: grid` was covering the WebGL canvas. */
+#error:not([hidden]) {
+  display: grid;
 }
 
 @media (max-width: 720px) {
@@ -225,6 +176,7 @@ body,
   }
 
   #hud .flight-title {
-    top: 0.9rem;
+    left: 0.9rem;
+    bottom: 0.9rem;
   }
 }
