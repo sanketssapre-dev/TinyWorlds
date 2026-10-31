@@ -8,6 +8,7 @@ const KEEP_SELF = new Set([
   "village-flames",
   "castle-flames",
   "ancient-crown",
+  "planet-world",
 ]);
 
 const KEEP_SUBTREE = new Set([
@@ -15,13 +16,16 @@ const KEEP_SUBTREE = new Set([
   "fireflies",
   "grazing-sheep",
   "yacht-fleet",
+  "train-consist",
+  "train",
+  "steam",
 ]);
 
 export function freezeStaticObjects(root: Object3D): void {
   const visit = (obj: Object3D, keepSubtree: boolean): void => {
     const subtree = keepSubtree || KEEP_SUBTREE.has(obj.name);
     if (!(subtree || KEEP_SELF.has(obj.name))) {
-      obj.updateMatrix();
+      if (obj.matrixAutoUpdate) obj.updateMatrix();
       obj.matrixAutoUpdate = false;
     }
     for (const child of obj.children) visit(child, subtree);

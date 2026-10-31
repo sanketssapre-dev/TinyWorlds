@@ -1,29 +1,19 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  Color,
   IcosahedronGeometry,
   Mesh,
   MeshStandardMaterial,
   Vector3,
 } from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { PLANET, WATER_LEVEL } from "../config";
-import { cartToSph, angularDistance } from "../math/sphere";
+import { PLANET } from "../config";
+import { cartToSph } from "../math/sphere";
 import { heightOffset } from "./height";
-import { SITES } from "./features";
-
-const grassA = new Color("#3f5c3a");
-const grassB = new Color("#5a7044");
-const meadow = new Color("#6b7d48");
-const forest = new Color("#2c4a34");
-const rock = new Color("#6e665c");
-const cliff = new Color("#8a7d6d");
-const sand = new Color("#c2b08a");
-const seabed = new Color("#3a4a52");
+import { createAlpinePlanetMaterial } from "../render/materials";
 
 export function createPlanetMesh(): Mesh {
-  const source = new IcosahedronGeometry(PLANET.radius, 72);
+  const source = new IcosahedronGeometry(PLANET.radius, 60);
   source.deleteAttribute("normal");
   source.deleteAttribute("uv");
   const geo: BufferGeometry = mergeVertices(source, 1e-3);
@@ -38,71 +28,16 @@ export function createPlanetMesh(): Mesh {
     pos.setXYZ(i, v.x, v.y, v.z);
   }
   pos.needsUpdate = true;
-  geo.boundingBox = null;
-  geo.boundingSphere = null;
   geo.computeVertexNormals();
-  const nrm = geo.attributes.normal as BufferAttribute;
-  const colors = new Float32Array(pos.count * 3);
-  const n = new Vector3();
-  const color = new Color();
-
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    n.fromBufferAttribute(nrm, i);
-    const sph = cartToSph(v);
-    const h = v.length() - PLANET.radius;
-    const radial = v.clone().normalize();
-    const slope = 1 - Math.max(0, n.dot(radial));
-    const flooded = h < WATER_LEVEL + 0.12;
-
-    const mix = (Math.sin(sph.theta * 3.2 + sph.phi * 2.1) + 1) * 0.5;
-    const speckle = (Math.sin(sph.theta * 9.5 + sph.phi * 6.4) + 1) * 0.5;
-    if (flooded) {
-      color.copy(seabed);
-      color.lerp(rock, speckle * 0.22);
-    } else {
-      color.lerpColors(grassA, grassB, mix);
-      color.lerp(meadow, speckle * 0.16);
-      if (h > WATER_LEVEL + 1.6) color.lerp(forest, Math.min(0.28, (h - WATER_LEVEL - 1.6) * 0.08));
-    }
-
-    if (slope > 0.36) color.lerp(cliff, Math.min(1, (slope - 0.36) / 0.22));
-    else if (slope > 0.2) color.lerp(rock, ((slope - 0.2) / 0.16) * 0.4);
-
-    const lakeShore = angularDistance(sph.theta, sph.phi, SITES.lake.theta, SITES.lake.phi);
-    const otherShore = Math.min(
-      angularDistance(sph.theta, sph.phi, SITES.lake2.theta, SITES.lake2.phi),
-      angularDistance(sph.theta, sph.phi, SITES.pool.theta, SITES.pool.phi),
-    );
-    if (!flooded && lakeShore < 0.11) {
-      const t = 1 - lakeShore / 0.11;
-      color.lerp(sand, t * t * 0.55);
-    } else if (!flooded && otherShore < 0.07) {
-      const t = 1 - otherShore / 0.07;
-      color.lerp(sand, t * t * 0.55);
-    }
-    if (h > WATER_LEVEL - 0.35 && h < WATER_LEVEL + 0.5) {
-      color.lerp(sand, 0.45);
-    }
-
-    colors[i * 3] = color.r;
-    colors[i * 3 + 1] = color.g;
-    colors[i * 3 + 2] = color.b;
-  }
-
-  geo.setAttribute("color", new BufferAttribute(colors, 3));
   geo.computeBoundingSphere();
 
-  const mat = new MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.82,
-    metalness: 0.02,
-    flatShading: false,
-  });
-
+  const mat =
+    typeof document === "undefined"
+      ? new MeshStandardMaterial({ color: "#4d6244", roughness: 0.92 })
+      : createAlpinePlanetMaterial();
   const mesh = new Mesh(geo, mat);
+  mesh.name = "planet";
   mesh.receiveShadow = true;
   mesh.castShadow = false;
-  mesh.name = "planet";
   return mesh;
 }

@@ -8,33 +8,49 @@ export type SphericalSite = {
   phi: number;
   kind:
     | "village"
-    | "castle"
-    | "tower"
-    | "shrine"
-    | "ancientTree"
-    | "arch"
-    | "lake"
-    | "pool"
+    | "chalet"
     | "peak"
-    | "cliff";
+    | "lake"
+    | "pond"
+    | "cliff"
+    | "tunnel"
+    | "meadow"
+    | "waterfall";
 };
 
+/** Landmark anchors for the Alpine circuit — spaced around the globe. */
 export const SITES: Record<string, SphericalSite> = {
-  village: { id: "village", theta: 1.18, phi: 0.22, kind: "village" },
-  castle: { id: "castle", theta: 0.72, phi: 2.35, kind: "castle" },
-  tower: { id: "tower", theta: 0.98, phi: 5.72, kind: "tower" },
-  shrine: { id: "shrine", theta: 1.08, phi: 5.18, kind: "shrine" },
-  ancientTree: { id: "ancientTree", theta: 1.22, phi: 3.55, kind: "ancientTree" },
-  arch: { id: "arch", theta: 1.32, phi: 0.86, kind: "arch" },
-  lake: { id: "lake", theta: 1.42, phi: 1.18, kind: "lake" },
-  lake2: { id: "lake2", theta: 1.68, phi: 4.05, kind: "lake" },
-  pool: { id: "pool", theta: 1.55, phi: 1.65, kind: "pool" },
-  peakNorth: { id: "peakNorth", theta: 0.68, phi: 2.32, kind: "peak" },
-  peakWest: { id: "peakWest", theta: 1.05, phi: 3.9, kind: "peak" },
-  peakEast: { id: "peakEast", theta: 1.12, phi: 6.05, kind: "peak" },
-  cliff: { id: "cliff", theta: 1.95, phi: 2.8, kind: "cliff" },
-  tunnel: { id: "tunnel", theta: 1.05, phi: 3.92, kind: "peak" },
+  villageA: { id: "villageA", theta: 1.12, phi: 0.35, kind: "village" },
+  villageB: { id: "villageB", theta: 1.28, phi: 2.55, kind: "village" },
+  villageC: { id: "villageC", theta: 1.18, phi: 4.65, kind: "village" },
+  chaletRidge: { id: "chaletRidge", theta: 0.95, phi: 1.45, kind: "chalet" },
+  peakMatter: { id: "peakMatter", theta: 0.62, phi: 1.95, kind: "peak" },
+  peakEiger: { id: "peakEiger", theta: 0.7, phi: 3.55, kind: "peak" },
+  peakJung: { id: "peakJung", theta: 0.78, phi: 5.4, kind: "peak" },
+  peakSouth: { id: "peakSouth", theta: 2.15, phi: 2.1, kind: "peak" },
+  peakFar: { id: "peakFar", theta: 1.85, phi: 5.0, kind: "peak" },
+  lakeGeneva: { id: "lakeGeneva", theta: 1.38, phi: 0.95, kind: "lake" },
+  lakeBrienz: { id: "lakeBrienz", theta: 1.48, phi: 3.15, kind: "lake" },
+  pondAlp: { id: "pondAlp", theta: 1.62, phi: 5.45, kind: "pond" },
+  lakeThun: { id: "lakeThun", theta: 2.08, phi: 1.35, kind: "lake" },
+  lakeLucerne: { id: "lakeLucerne", theta: 0.48, phi: 2.85, kind: "lake" },
+  lakeMaggiora: { id: "lakeMaggiora", theta: 2.42, phi: 4.55, kind: "lake" },
+  cliffFace: { id: "cliffFace", theta: 1.05, phi: 3.9, kind: "cliff" },
+  tunnelA: { id: "tunnelA", theta: 1.02, phi: 3.95, kind: "tunnel" },
+  tunnelB: { id: "tunnelB", theta: 1.35, phi: 1.7, kind: "tunnel" },
+  meadowA: { id: "meadowA", theta: 1.32, phi: 0.1, kind: "meadow" },
+  waterfall: { id: "waterfall", theta: 1.15, phi: 2.2, kind: "waterfall" },
 };
+
+/** World-unit radii. The two the railway crosses stay inside the bridge spans. */
+export const LAKES: { site: SphericalSite; radius: number; depth: number }[] = [
+  { site: SITES.lakeGeneva, radius: 19, depth: 3.4 },
+  { site: SITES.lakeBrienz, radius: 15, depth: 3.0 },
+  { site: SITES.pondAlp, radius: 8, depth: 2.0 },
+  { site: SITES.lakeThun, radius: 20, depth: 3.6 },
+  { site: SITES.lakeLucerne, radius: 16, depth: 3.2 },
+  { site: SITES.lakeMaggiora, radius: 15, depth: 3.0 },
+];
 
 export function sitePosition(site: SphericalSite, radius = PLANET.radius): Vector3 {
   return sphToCart(radius, site.theta, site.phi);
