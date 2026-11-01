@@ -43,14 +43,36 @@ export const SITES: Record<string, SphericalSite> = {
 };
 
 /** World-unit radii. The two the railway crosses stay inside the bridge spans. */
-export const LAKES: { site: SphericalSite; radius: number; depth: number }[] = [
-  { site: SITES.lakeGeneva, radius: 19, depth: 3.4 },
-  { site: SITES.lakeBrienz, radius: 15, depth: 3.0 },
-  { site: SITES.pondAlp, radius: 8, depth: 2.0 },
-  { site: SITES.lakeThun, radius: 20, depth: 3.6 },
-  { site: SITES.lakeLucerne, radius: 16, depth: 3.2 },
-  { site: SITES.lakeMaggiora, radius: 15, depth: 3.0 },
+export const LAKES: { site: SphericalSite; radius: number; depth: number; shorePhase: number }[] = [
+  { site: SITES.lakeGeneva, radius: 28.5, depth: 5.1, shorePhase: 0.3 },
+  { site: SITES.lakeBrienz, radius: 22.5, depth: 4.5, shorePhase: 1.8 },
+  { site: SITES.pondAlp, radius: 12, depth: 3, shorePhase: 3.2 },
+  { site: SITES.lakeThun, radius: 30, depth: 5.4, shorePhase: 4.4 },
+  { site: SITES.lakeLucerne, radius: 24, depth: 4.8, shorePhase: 2.5 },
+  { site: SITES.lakeMaggiora, radius: 22.5, depth: 4.5, shorePhase: 5.3 },
 ];
+
+/** Subtle, repeatable coves and headlands; shared by the basin and water edge. */
+export function lakeShoreScale(
+  lake: (typeof LAKES)[number],
+  bearing: number,
+): number {
+  return (
+    1 +
+    0.095 * Math.cos(bearing * 2 + lake.shorePhase) +
+    0.045 * Math.sin(bearing * 3 - lake.shorePhase * 0.7) +
+    0.02 * Math.cos(bearing * 5 + lake.shorePhase * 1.3)
+  );
+}
+
+export function lakeBearing(theta: number, phi: number, lake: (typeof LAKES)[number]): number {
+  const deltaPhi = phi - lake.site.phi;
+  const east = Math.sin(deltaPhi) * Math.cos(theta);
+  const north =
+    Math.cos(lake.site.theta) * Math.sin(theta) -
+    Math.sin(lake.site.theta) * Math.cos(theta) * Math.cos(deltaPhi);
+  return Math.atan2(east, north);
+}
 
 export function sitePosition(site: SphericalSite, radius = PLANET.radius): Vector3 {
   return sphToCart(radius, site.theta, site.phi);

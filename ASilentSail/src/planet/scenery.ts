@@ -1,18 +1,25 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
+  Color,
   CylinderGeometry,
   DoubleSide,
+  Float32BufferAttribute,
   Group,
   IcosahedronGeometry,
   InstancedMesh,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
   PlaneGeometry,
   SphereGeometry,
+  SRGBColorSpace,
   Texture,
   Vector3,
+  RepeatWrapping,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { PLANET } from "../config";
@@ -34,6 +41,10 @@ const tmpMat = new Matrix4();
 const axisX = new Vector3();
 const axisZ = new Vector3();
 const refAxis = new Vector3();
+const CONIFER_CROWN_FRACTION = 0.7;
+const CONIFER_BRANCH_DETAIL = 4;
+let bark: CanvasTexture | undefined;
+let coniferNeedles: CanvasTexture | undefined;
 
 export const sceneryTime = { value: 0 };
 
@@ -51,28 +62,292 @@ export function buildAlpineScenery(
 }
 
 function trunkGeometry(): BufferGeometry {
-  const trunk = new CylinderGeometry(0.06, 0.12, 0.42, 6);
-  trunk.translate(0, 0.2, 0);
-  const flare = new CylinderGeometry(0.1, 0.18, 0.22, 6);
-  flare.translate(0, 0.08, 0);
+  const trunk = new CylinderGeometry(0.035, 0.12, 1.65, 7, 5);
+  const pos = trunk.getAttribute("position");
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const angle = Math.atan2(z, x);
+    const y = pos.getY(i);
+    const grain = 1 + Math.sin(angle * 4 + y * 5) * 0.045;
+    pos.setXYZ(i, x * grain, y, z * grain);
+  }
+  trunk.translate(0, 0.825, 0);
+  trunk.computeVertexNormals();
+  const flare = new CylinderGeometry(0.1, 0.19, 0.26, 7, 2);
+  flare.translate(0, 0.12, 0);
   return mergeParts([trunk, flare]);
 }
 
-/** Clumps in a ragged cone, so the crown is a tree and not a stack of perfect cones. */
-function clumpFoliage(spread: number, seed: number, clumps: number, bias: number): BufferGeometry {
-  const parts: BufferGeometry[] = [];
-  for (let i = 0; i < clumps; i++) {
-    const t = Math.pow(hash(seed + i * 1.37), bias);
-    const y = 0.02 + t * (1.45 + spread * 0.2);
-    const env = spread * (1.15 * (1 - t) + 0.1) * (0.7 + hash(seed + i * 2.1) * 0.55);
-    const ang = hash(seed + i * 3.3) * Math.PI * 2;
-    const rad = 0.22 + hash(seed + i * 5.1) * 0.16 * Math.max(0.8, spread);
-    const clump = new IcosahedronGeometry(rad, 0);
-    clump.scale(1, 0.66 + hash(seed + i) * 0.2, 1);
-    clump.translate(Math.cos(ang) * env, y, Math.sin(ang) * env);
-    parts.push(clump);
+function barkTexture(): CanvasTexture {
+  if (bark) return bark;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not create the Alpine bark texture.");
+  ctx.fillStyle = "#80664a";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 520; i++) {
+    const x = hash(i * 3.3) * size;
+    const y = hash(i * 7.1) * size;
+    const length = 4 + hash(i * 2.9) * 28;
+    ctx.strokeStyle = i % 3 === 0 ? "#403329" : "#b39a72";
+    ctx.globalAlpha = 0.22 + hash(i * 8.7) * 0.5;
+    ctx.lineWidth = 0.45 + hash(i * 4.1) * 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (hash(i * 6.2) - 0.5) * 3, y + length);
+    ctx.stroke();
   }
-  return mergeParts(parts);
+  for (let i = 0; i < 16; i++) {
+    const x = hash(i * 11.3) * size;
+    const y = hash(i * 13.7) * size;
+    ctx.globalAlpha = 0.2;
+    ctx.strokeStyle = "#32291f";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 1.5 + hash(i) * 2, 3 + hash(i + 1) * 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  bark = new CanvasTexture(canvas);
+  bark.wrapS = RepeatWrapping;
+  bark.wrapT = RepeatWrapping;
+  bark.magFilter = LinearFilter;
+  bark.minFilter = LinearMipmapLinearFilter;
+  bark.colorSpace = SRGBColorSpace;
+  bark.needsUpdate = true;
+  return bark;
+}
+
+function coniferNeedleAtlas(): CanvasTexture {
+  if (coniferNeedles) return coniferNeedles;
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size / 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not create the Alpine conifer texture.");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size / 2, canvas.height);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(size / 2 + 8, 4, size / 2 - 16, canvas.height - 8);
+  ctx.clip();
+
+  const stemY = 37;
+  ctx.strokeStyle = "rgba(255,255,255,0.74)";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(132, stemY);
+  ctx.bezierCurveTo(170, stemY + 1, 214, stemY + 12, 252, 25);
+  ctx.stroke();
+
+  for (let section = 0; section < 17; section++) {
+    const t = section / 16;
+    const x = 136 + t * 112;
+    const centerY = stemY - 12 * t * t;
+    const length = (11 + (1 - t) * 18) * (0.72 + hash(section * 2.4) * 0.52);
+    ctx.fillStyle = `rgba(255,255,255,${0.18 + hash(section * 3.2) * 0.26})`;
+    ctx.beginPath();
+    ctx.ellipse(
+      x,
+      centerY,
+      4 + hash(section * 4.1) * 4,
+      2.5 + hash(section * 5.3) * 2.5,
+      (hash(section * 6.7) - 0.5) * 0.45,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    for (let side = -1; side <= 1; side += 2) {
+      for (let needle = 0; needle < 8; needle++) {
+        const n = section * 23 + needle * 7 + (side + 1) * 3;
+        const startX = x + (hash(n + 0.2) - 0.5) * 7;
+        const startY = centerY + side * (1 + hash(n + 0.7) * 3);
+        const angle = side * (0.45 + hash(n + 1.3) * 1.05);
+        const reach = length * (0.55 + hash(n + 2.1) * 0.65);
+        const endX = startX + reach * Math.cos(angle) * (0.42 + hash(n + 3.5) * 0.4);
+        const endY = startY + side * reach * (0.68 + hash(n + 4.7) * 0.4);
+        ctx.strokeStyle = `rgba(255,255,255,${0.42 + hash(n + 5.3) * 0.5})`;
+        ctx.lineWidth = 1.05 + hash(n + 6.1) * 1.35;
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.quadraticCurveTo(
+          startX + (endX - startX) * 0.38 - side * 1.4,
+          startY + (endY - startY) * 0.45,
+          endX,
+          endY,
+        );
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+
+  coniferNeedles = new CanvasTexture(canvas);
+  coniferNeedles.colorSpace = SRGBColorSpace;
+  coniferNeedles.magFilter = LinearFilter;
+  coniferNeedles.minFilter = LinearMipmapLinearFilter;
+  coniferNeedles.needsUpdate = true;
+  return coniferNeedles;
+}
+
+/** Shared bough geometry with a fine, transparent needle atlas for close-up detail. */
+function coniferCrown(
+  spread: number,
+  seed: number,
+  branchCount: number,
+  darkHex: string,
+  lightHex: string,
+): BufferGeometry {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const dark = new Color(darkHex);
+  const light = new Color(lightHex);
+  const shade = new Color();
+  const height = 1.52;
+  const addVertex = (x: number, y: number, z: number, tint: number, u = 0.25, v = 0.5) => {
+    positions.push(x, y, z);
+    shade.copy(dark).lerp(light, tint);
+    colors.push(shade.r, shade.g, shade.b);
+    uvs.push(u, v);
+    return positions.length / 3 - 1;
+  };
+
+  const crownBase = height * (1 - CONIFER_CROWN_FRACTION);
+  const appendBough = (start: Vector3, end: Vector3, width: number, branchSeed: number) => {
+    const direction = end.clone().sub(start).normalize();
+    const side = new Vector3(-direction.z, 0, direction.x).normalize();
+    const up = new Vector3().crossVectors(direction, side).normalize();
+    const rings = 2;
+    const sides = 3;
+    const base = positions.length / 3;
+    for (let ring = 0; ring <= rings; ring++) {
+      const t = ring / rings;
+      const center = start.clone().lerp(end, t);
+      center.y = Math.max(crownBase, center.y - t * t * width * 0.65);
+      const radius = width * (0.88 * Math.pow(1 - t, 0.8) + 0.08);
+      for (let sideIndex = 0; sideIndex < sides; sideIndex++) {
+        const angle = (sideIndex / sides) * Math.PI * 2 + hash(branchSeed + ring) * 0.25;
+        const offsetA = Math.cos(angle) * radius;
+        const offsetB = Math.sin(angle) * radius * 0.58;
+        addVertex(
+          center.x + side.x * offsetA + up.x * offsetB,
+          center.y + side.y * offsetA + up.y * offsetB,
+          center.z + side.z * offsetA + up.z * offsetB,
+          0.12 + hash(branchSeed + ring * 9 + sideIndex) * 0.25,
+        );
+      }
+    }
+    for (let ring = 0; ring < rings; ring++) {
+      for (let sideIndex = 0; sideIndex < sides; sideIndex++) {
+        const a = base + ring * sides + sideIndex;
+        const b = base + ring * sides + (sideIndex + 1) % sides;
+        const c = a + sides;
+        const d = b + sides;
+        indices.push(a, b, c, b, d, c);
+      }
+    }
+  };
+
+  const appendFoliageCard = (
+    start: Vector3,
+    end: Vector3,
+    side: Vector3,
+    width: number,
+    cardSeed: number,
+  ) => {
+    const direction = end.clone().sub(start).normalize();
+    const across = side.clone().addScaledVector(direction, -side.dot(direction)).normalize();
+    const startWidth = width * (0.48 + hash(cardSeed) * 0.12);
+    const endWidth = width * (0.12 + hash(cardSeed + 1) * 0.08);
+    const baseTint = 0.26 + hash(cardSeed + 2) * 0.25;
+    const tipTint = 0.5 + hash(cardSeed + 3) * 0.38;
+    const base = positions.length / 3;
+    const atlasU0 = 0.54;
+    const atlasU1 = 0.99;
+    const atlasV0 = 0.05;
+    const atlasV1 = 0.95;
+
+    addVertex(
+      start.x - across.x * startWidth,
+      start.y - across.y * startWidth,
+      start.z - across.z * startWidth,
+      baseTint,
+      atlasU0,
+      atlasV0,
+    );
+    addVertex(
+      start.x + across.x * startWidth,
+      start.y + across.y * startWidth,
+      start.z + across.z * startWidth,
+      baseTint,
+      atlasU0,
+      atlasV1,
+    );
+    addVertex(
+      end.x - across.x * endWidth,
+      end.y - across.y * endWidth,
+      end.z - across.z * endWidth,
+      tipTint,
+      atlasU1,
+      atlasV0,
+    );
+    addVertex(
+      end.x + across.x * endWidth,
+      end.y + across.y * endWidth,
+      end.z + across.z * endWidth,
+      tipTint,
+      atlasU1,
+      atlasV1,
+    );
+    indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+  };
+
+  const tiers = Math.max(5, Math.round(branchCount / 6));
+  for (let tier = 0; tier < tiers; tier++) {
+    const tierT = tier / Math.max(1, tiers - 1);
+    const baseLimbs = Math.round(branchCount / tiers);
+    const limbs = Math.max(3, baseLimbs + Math.floor(hash(seed + tier * 13.7) * 3) - 1);
+    for (let limb = 0; limb < limbs; limb++) {
+      const branchSeed = seed + tier * 37 + limb * 11.7;
+      const crownHeight = height * CONIFER_CROWN_FRACTION;
+      const y =
+        crownBase +
+        (tier + 0.5 + (hash(branchSeed) - 0.5) * 0.8) * (crownHeight / tiers);
+      const angle = limb * 2.399963 + tier * 0.71 + (hash(branchSeed + 1) - 0.5) * 1.5;
+      const reach = spread * (0.92 * Math.pow(1 - tierT, 0.72) + 0.075) *
+        (0.72 + hash(branchSeed + 2) * 0.52);
+      const droop = reach * (0.24 + hash(branchSeed + 3) * 0.2);
+      const start = new Vector3(Math.cos(angle) * 0.045, y, Math.sin(angle) * 0.045);
+      const end = new Vector3(
+        Math.cos(angle) * reach,
+        Math.max(crownBase, y - droop + reach * 0.08),
+        Math.sin(angle) * reach,
+      );
+      appendBough(start, end, spread * (0.085 + (1 - tierT) * 0.05), branchSeed);
+
+      const cardWidth =
+        spread * (0.25 + (1 - tierT) * 0.2) * (0.84 + hash(branchSeed + 4) * 0.32);
+      const crossBranch = new Vector3(-Math.sin(angle), 0, Math.cos(angle));
+      appendFoliageCard(start, end, crossBranch, cardWidth, branchSeed + 5);
+      appendFoliageCard(start, end, new Vector3(0, 1, 0), cardWidth * 0.9, branchSeed + 8);
+    }
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geo.setAttribute("color", new Float32BufferAttribute(colors, 3));
+  geo.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 function snowCrown(): BufferGeometry {
@@ -109,7 +384,11 @@ function ruggedRock(radius: number, seed: number, flat: number): BufferGeometry 
     const y = pos.getY(i);
     const z = pos.getZ(i);
     const len = Math.hypot(x, y, z) || 1;
-    const n = 0.84 + hash(seed + i * 1.9) * 0.28;
+    const vertexSeed =
+      Math.round((x / len + 1) * 100) * 1.7 +
+      Math.round((y / len + 1) * 100) * 3.1 +
+      Math.round((z / len + 1) * 100) * 7.3;
+    const n = 0.9 + hash(seed + vertexSeed) * 0.2;
     pos.setXYZ(i, (x / len) * radius * n, (y / len) * radius * n * flat, (z / len) * radius * n);
   }
   geo.computeVertexNormals();
@@ -132,29 +411,54 @@ function cardMaterial(map: Texture, color = "#ffffff"): MeshStandardMaterial {
 
 function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): void {
   const maps = alpineMaps();
-  const foliage = new MeshStandardMaterial({ color: "#1e4a32", roughness: 0.9 });
-  const foliageB = new MeshStandardMaterial({ color: "#2c5a3c", roughness: 0.88 });
-  const larchMat = new MeshStandardMaterial({ color: "#8a9344", roughness: 0.84 });
-  const bark = new MeshStandardMaterial({ color: "#5c4032", roughness: 0.92 });
+  const foliage = new MeshStandardMaterial({
+    map: coniferNeedleAtlas(),
+    color: "#ffffff",
+    roughness: 0.9,
+    vertexColors: true,
+    side: DoubleSide,
+    alphaTest: 0.16,
+  });
+  const foliageB = new MeshStandardMaterial({
+    map: coniferNeedleAtlas(),
+    color: "#ffffff",
+    roughness: 0.88,
+    vertexColors: true,
+    side: DoubleSide,
+    alphaTest: 0.16,
+  });
+  const larchMat = new MeshStandardMaterial({
+    map: coniferNeedleAtlas(),
+    color: "#ffffff",
+    roughness: 0.84,
+    vertexColors: true,
+    side: DoubleSide,
+    alphaTest: 0.16,
+  });
+  const barkMat = new MeshStandardMaterial({
+    map: barkTexture(),
+    color: "#c5a985",
+    roughness: 0.96,
+  });
   const snowMat = mappedStandard(maps.snow, { color: "#e7eef3", roughness: 0.78 });
-  const rockMat = mappedStandard(maps.rock, { roughness: 0.94 });
+  const rockMat = mappedStandard(maps.alpineRock, { color: "#c5c8c3", roughness: 0.96 });
 
-  const tall = clumpFoliage(1.05, 1, 36, 1.25);
-  const wide = clumpFoliage(1.32, 8, 32, 1.05);
-  const larchGeo = clumpFoliage(0.82, 21, 20, 0.85);
+  const tall = coniferCrown(0.82, 1, 36 * CONIFER_BRANCH_DETAIL, "#315b3b", "#7d9c60");
+  const wide = coniferCrown(1.02, 8, 40 * CONIFER_BRANCH_DETAIL, "#3c6846", "#90ad69");
+  const larchGeo = coniferCrown(0.76, 21, 26 * CONIFER_BRANCH_DETAIL, "#748246", "#c1b86d");
   const snowGeo = snowCrown();
   const rockGeo = ruggedRock(0.48, 4, 0.7);
 
-  const maxTrees = 9000;
-  const tallMesh = new InstancedMesh(tall, foliage, maxTrees);
-  const wideMesh = new InstancedMesh(wide, foliageB, maxTrees);
-  const larchMesh = new InstancedMesh(larchGeo, larchMat, 2200);
-  const trunkMesh = new InstancedMesh(trunkGeometry(), bark, maxTrees);
-  const snowCaps = new InstancedMesh(snowGeo, snowMat, maxTrees);
+  const maxTrees = 7000;
+  const treeBuckets = Array.from({ length: 8 }, () => ({
+    tall: [] as Matrix4[],
+    wide: [] as Matrix4[],
+    larch: [] as Matrix4[],
+    trunks: [] as Matrix4[],
+    snow: [] as Matrix4[],
+  }));
+  const trunkGeo = trunkGeometry();
   const rocks = new InstancedMesh(rockGeo, rockMat, 420);
-  tallMesh.castShadow = true;
-  wideMesh.castShadow = true;
-  larchMesh.castShadow = true;
   rocks.castShadow = true;
   rocks.receiveShadow = true;
 
@@ -169,62 +473,77 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
     if (tallCount + wideCount + larchCount >= maxTrees) return;
     if (theta < 0.04 || theta > Math.PI - 0.04) return;
     const h = heightOffset(theta, phi);
-    if (h < -0.35 || h > 8.2) return;
+    if (h < -0.55 || h > 14.8) return;
     if (nearTrack(railway, theta, phi, 0.07)) return;
     if (nearLake(theta, phi)) return;
     const meshR = surface.radius(theta, phi);
     const r = (meshR > 1 ? meshR : PLANET.radius + h) - 0.02;
     placeOnSphere(theta, phi, r, scale, 0, yaw);
+    const bucket = treeBuckets[
+      Math.min(1, Math.floor((theta / Math.PI) * 2)) * 4 +
+        Math.min(3, Math.floor((wrapPhi(phi) / (Math.PI * 2)) * 4))
+    ];
     const larch = wideTree && hash(yaw * 3.7 + scale) > 0.62 && larchCount < 2200;
-    if (larch) larchMesh.setMatrixAt(larchCount++, tmpMat.clone());
-    else if (wideTree) wideMesh.setMatrixAt(wideCount++, tmpMat.clone());
-    else tallMesh.setMatrixAt(tallCount++, tmpMat.clone());
-    if (trunkCount < maxTrees) trunkMesh.setMatrixAt(trunkCount++, tmpMat.clone());
+    if (larch) {
+      bucket.larch.push(tmpMat.clone());
+      larchCount++;
+    } else if (wideTree) {
+      bucket.wide.push(tmpMat.clone());
+      wideCount++;
+    } else {
+      bucket.tall.push(tmpMat.clone());
+      tallCount++;
+    }
+    if (trunkCount < maxTrees) {
+      bucket.trunks.push(tmpMat.clone());
+      trunkCount++;
+    }
     if (snowFactor(theta, h) > 0.55 && snowCount < maxTrees && scale > 1.3) {
       placeOnSphere(theta, phi, r, scale, 0, yaw);
-      snowCaps.setMatrixAt(snowCount++, tmpMat.clone());
+      bucket.snow.push(tmpMat.clone());
+      snowCount++;
     }
   };
 
   // Valley banks first, as irregular stands rather than a row of evenly
   // spaced trees. The rest of the planet is groves: dense in the middle,
   // empty meadow between them.
-  for (let i = 0; i < railway.samples.length && tallCount + wideCount < maxTrees; i += 5) {
+  for (let i = 0; i < railway.samples.length && tallCount + wideCount < maxTrees; i += 4) {
     const s = railway.samples[i];
     const side = (hash(i * 1.3) > 0.5 ? 1 : -1) * (6 + hash(i * 2.1) * 22);
     const p = s.position.clone().addScaledVector(s.binormal, side);
     const len = p.length() || 1;
     const cTheta = Math.acos(Math.min(1, Math.max(-1, p.y / len)));
     const cPhi = Math.atan2(p.z, p.x);
-    const members = 4 + Math.floor(hash(i * 4.4) * 7);
-    const spread = 0.02 + hash(i * 6.2) * 0.045;
+    const members = 7 + Math.floor(hash(i * 4.4) * 9);
+    const spread = 0.03 + hash(i * 6.2) * 0.07;
     for (let t = 0; t < members && tallCount + wideCount < maxTrees; t++) {
       const ang = hash(i * 20 + t * 3.3) * Math.PI * 2;
       const dist = Math.pow(hash(i * 8 + t * 5.1), 0.6) * spread;
       const theta = cTheta + Math.cos(ang) * dist;
       const phi = wrapPhi(cPhi + (Math.sin(ang) * dist) / Math.max(0.3, Math.sin(cTheta)));
-      placeTree(theta, phi, 1.05 + hash(i + t * 2) * 1.2, ang, hash(i + t) > 0.5);
+      placeTree(theta, phi, 1.45 + hash(i + t * 2) * 1.5, ang, hash(i + t) > 0.5);
     }
   }
 
-  const groveCount = 200;
+  const groveCount = 360;
   for (let g = 0; g < groveCount && tallCount + wideCount < maxTrees; g++) {
     const u = hash(g * 19.1 + 2.3);
     const v = hash(g * 7.7 + 11.2);
     const cTheta = Math.acos(Math.min(1, Math.max(-1, 2 * u - 1)));
     const cPhi = wrapPhi(v * Math.PI * 2);
     const centerH = heightOffset(cTheta, cPhi);
-    if (centerH < -0.45 || centerH > 8.4) continue;
+    if (centerH < -0.65 || centerH > 15.2) continue;
     if (nearLake(cTheta, cPhi)) continue;
 
-    const members = 10 + Math.floor(hash(g * 3.1) * 18);
-    const spread = 0.04 + hash(g * 5.4) * 0.1;
+    const members = 14 + Math.floor(hash(g * 3.1) * 20);
+    const spread = 0.045 + hash(g * 5.4) * 0.11;
     for (let t = 0; t < members && tallCount + wideCount < maxTrees; t++) {
       const ang = hash(g * 100 + t * 1.7) * Math.PI * 2;
       const dist = Math.pow(hash(g * 130 + t * 2.3), 0.5) * spread;
       const theta = cTheta + Math.cos(ang) * dist;
       const phi = wrapPhi(cPhi + (Math.sin(ang) * dist) / Math.max(0.3, Math.sin(cTheta)));
-      const scale = 1.15 + hash(g * 17 + t) * 0.85;
+      const scale = 1.7 + hash(g * 17 + t) * 1.25;
       placeTree(theta, phi, scale, ang, hash(t * 9 + g) > 0.45);
     }
   }
@@ -234,7 +553,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
       const theta = hash(i * 2.2) * Math.PI;
       const phi = hash(i * 3.7) * Math.PI * 2;
       const h = heightOffset(theta, phi);
-      if (h < 2.4 || h > 8.5) continue;
+      if (h < 4.0 || h > 16.5) continue;
       if (nearTrack(railway, theta, phi, 0.04) || nearLake(theta, phi)) continue;
       if (hash(i * 8.8) < 0.72) continue;
       const meshR = surface.radius(theta, phi);
@@ -244,25 +563,32 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
     }
   }
 
-  tallMesh.count = tallCount;
-  wideMesh.count = wideCount;
-  larchMesh.count = larchCount;
-  trunkMesh.count = trunkCount;
-  snowCaps.count = snowCount;
+  for (const bucket of treeBuckets) {
+    addInstances(tall, foliage, bucket.tall, "spruce-tall");
+    addInstances(wide, foliageB, bucket.wide, "spruce-wide");
+    addInstances(larchGeo, larchMat, bucket.larch, "larch");
+    addInstances(trunkGeo, barkMat, bucket.trunks, "tree-trunks");
+    addInstances(snowGeo, snowMat, bucket.snow, "pine-snow");
+  }
   rocks.count = rockCount;
-  tallMesh.instanceMatrix.needsUpdate = true;
-  wideMesh.instanceMatrix.needsUpdate = true;
-  larchMesh.instanceMatrix.needsUpdate = true;
-  trunkMesh.instanceMatrix.needsUpdate = true;
-  snowCaps.instanceMatrix.needsUpdate = true;
   rocks.instanceMatrix.needsUpdate = true;
-  tallMesh.name = "spruce-tall";
-  wideMesh.name = "spruce-wide";
-  larchMesh.name = "larch";
-  trunkMesh.name = "tree-trunks";
-  snowCaps.name = "pine-snow";
   rocks.name = "alpine-rocks";
-  root.add(trunkMesh, tallMesh, wideMesh, larchMesh, snowCaps, rocks);
+  root.add(rocks);
+
+  function addInstances(
+    geometry: BufferGeometry,
+    material: MeshStandardMaterial,
+    matrices: Matrix4[],
+    name: string,
+  ): void {
+    if (matrices.length === 0) return;
+    const mesh = new InstancedMesh(geometry, material, matrices.length);
+    for (let i = 0; i < matrices.length; i++) mesh.setMatrixAt(i, matrices[i]);
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.name = name;
+    mesh.castShadow = false;
+    root.add(mesh);
+  }
 }
 
 /** Grass tufts, dry-stone walls, and pasture fences along the meadows. */
@@ -274,7 +600,11 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
   const grassA = new InstancedMesh(crossedCard(0.55, 0.34), grassMat, 6000);
   const grassB = new InstancedMesh(crossedCard(0.48, 0.46), grassMatB, 2400);
   const stone = new InstancedMesh(ruggedRock(0.22, 2, 0.58), limestone, 2000);
-  const boulder = new InstancedMesh(ruggedRock(0.55, 9, 0.72), mappedStandard(alpineMaps().rock, { roughness: 0.95 }), 800);
+  const boulder = new InstancedMesh(
+    ruggedRock(0.55, 9, 0.72),
+    mappedStandard(alpineMaps().alpineRock, { color: "#c5c8c3", roughness: 0.96 }),
+    800,
+  );
   const fenceWood = mappedStandard(alpineMaps().wood, { color: "#6b5340", roughness: 0.86 });
   const postGeo = new CylinderGeometry(0.035, 0.05, 0.62, 5);
   postGeo.translate(0, 0.31, 0);
@@ -309,7 +639,7 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
       const here = polarOf(origin);
       if (nearLake(here.theta, here.phi) || !gentleMeadow(here.theta, here.phi)) continue;
 
-      const tufts = 3 + Math.floor(hash(i + side * 5) * 2);
+      const tufts = 2 + Math.floor(hash(i + side * 5) * 2);
       for (let k = 0; k < tufts; k++) {
         const q = origin
           .clone()
@@ -323,7 +653,7 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
           at.theta,
           at.phi,
           seat(at.theta, at.phi, -0.02),
-          (tall ? 0.95 : 0.72) + hash(k + i) * 0.4,
+          (tall ? 0.68 : 0.58) + hash(k + i) * 0.24,
           0,
           hash(k) * 6,
         );
@@ -453,7 +783,7 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
 
 function gentleMeadow(theta: number, phi: number): boolean {
   const h = heightOffset(theta, phi);
-  if (h < 0.05 || h > 4.4) return false;
+  if (h < 0.05 || h > 6.8) return false;
   const e = 0.012;
   const hx = heightOffset(Math.min(Math.PI - 0.02, theta + e), phi);
   const hz = heightOffset(theta, wrapPhi(phi + e));
@@ -473,7 +803,7 @@ function plantChalets(root: Group, surface: PlanetSurface, railway: RailwayPath)
   for (const village of villages) {
     const cluster = new Group();
     cluster.name = `chalets-${village.id}`;
-    const n = village.kind === "chalet" ? 2 : 5;
+    const n = village.kind === "chalet" ? 4 : 14;
     for (let i = 0; i < n; i++) {
       const ang = (i / n) * Math.PI * 2 + village.phi * 0.1;
       const dTheta = Math.cos(ang) * 0.04;
@@ -501,7 +831,7 @@ function plantValleyHouses(root: Group, surface: PlanetSurface, railway: Railway
   cluster.name = "valley-houses";
   let placed = 0;
   const samples = railway.samples;
-  for (let i = 30; i < samples.length && placed < 10; i += 64) {
+  for (let i = 30; i < samples.length && placed < 22; i += 32) {
     const s = samples[i];
     if (s.inTunnel || s.elevated) continue;
     const side = hash(i * 1.7) > 0.5 ? 1 : -1;
@@ -509,7 +839,7 @@ function plantValleyHouses(root: Group, surface: PlanetSurface, railway: Railway
     const p = s.position.clone().addScaledVector(s.binormal, side * dist);
     const at = polarOf(p);
     const h = heightOffset(at.theta, at.phi);
-    if (h < 0.25 || h > 3.2 || nearLake(at.theta, at.phi, 0.05) || !gentleMeadow(at.theta, at.phi)) continue;
+    if (h < 0.25 || h > 5.8 || nearLake(at.theta, at.phi, 0.05) || !gentleMeadow(at.theta, at.phi)) continue;
     const meshR = surface.radius(at.theta, at.phi);
     const ground = meshR > 1 ? meshR : PLANET.radius + h;
     const house = makeChalet();
@@ -678,7 +1008,7 @@ function nearTrack(
 
 function nearLake(theta: number, phi: number, extra = 0): boolean {
   for (const lake of LAKES) {
-    const reach = lake.radius / PLANET.radius + 0.025 + extra;
+    const reach = lake.radius * 1.18 / PLANET.radius + 0.025 + extra;
     if (angularDistance(theta, phi, lake.site.theta, lake.site.phi) < reach) return true;
   }
   return false;

@@ -144,13 +144,13 @@ function placeCab(loco: Object3D, pos: Vector3, look: Vector3, up: Vector3): voi
 function placeFollow(pos: Vector3, look: Vector3, up: Vector3, inside: boolean): void {
   // Outside, a meadow chase. Inside a bore, sit on the centerline just
   // behind the consist so the view travels through the mouth.
-  const back = inside ? 0.4 : 8.5;
-  const height = inside ? 2.25 : 2.35;
-  // Outside, stay beyond the oncoming road. Inside, sit on our own rails.
-  const side = inside ? 0.15 : 2.15;
-  const lookAhead = inside ? 13 : 11;
-  const lookH = inside ? 0.45 : 1.85;
-  const lookSide = inside ? 0.15 : 0.55;
+  const back = inside ? 0.4 : CAMERA.followDistance;
+  const height = inside ? 2.25 : CAMERA.followHeight;
+  // Outside, frame the train and landscape together; inside, sit on our own rails.
+  const side = inside ? 0.15 : 3;
+  const lookAhead = inside ? 13 : CAMERA.lookAhead;
+  const lookH = inside ? 0.45 : -6.5;
+  const lookSide = inside ? 0.15 : 0.8;
   pos
     .copy(worldSamplePos)
     .addScaledVector(worldTangent, -back)

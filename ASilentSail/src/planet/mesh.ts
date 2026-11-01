@@ -13,7 +13,7 @@ import { heightOffset } from "./height";
 import { createAlpinePlanetMaterial } from "../render/materials";
 
 export function createPlanetMesh(): Mesh {
-  const source = new IcosahedronGeometry(PLANET.radius, 60);
+  const source = new IcosahedronGeometry(PLANET.radius, 84);
   source.deleteAttribute("normal");
   source.deleteAttribute("uv");
   const geo: BufferGeometry = mergeVertices(source, 1e-3);

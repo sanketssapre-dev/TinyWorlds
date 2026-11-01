@@ -1,7 +1,7 @@
 import { PLANET } from "../config";
 import { fbm3 } from "../math/noise";
 import { angularDistance, sphToCart } from "../math/sphere";
-import { SITES } from "./features";
+import { lakeBearing, lakeShoreScale, LAKES, SITES } from "./features";
 
 function blob(
   theta: number,
@@ -32,6 +32,20 @@ function jagged(
   return mask * amplitude * (0.42 + jag);
 }
 
+function massif(
+  theta: number,
+  phi: number,
+  siteTheta: number,
+  sitePhi: number,
+  sigma: number,
+  amplitude: number,
+): number {
+  return (
+    blob(theta, phi, siteTheta, sitePhi, sigma * 1.25, amplitude * 0.36) +
+    jagged(theta, phi, siteTheta, sitePhi, sigma * 0.72, amplitude)
+  );
+}
+
 /** Alpine elevation on the sphere — peaks, valleys, lakes, meadows. */
 export function heightOffset(theta: number, phi: number): number {
   const p = sphToCart(1, theta, phi);
@@ -43,19 +57,19 @@ export function heightOffset(theta: number, phi: number): number {
 
   let h = 0.35 + continents * 0.85 + ridges * 1.05 + roll * 0.28 + detail * 0.16;
 
-  h += blob(theta, phi, SITES.peakMatter.theta, SITES.peakMatter.phi, 0.32, 5.2);
-  h += blob(theta, phi, SITES.peakEiger.theta, SITES.peakEiger.phi, 0.28, 4.6);
-  h += blob(theta, phi, SITES.peakJung.theta, SITES.peakJung.phi, 0.26, 4.2);
-  h += blob(theta, phi, SITES.peakSouth.theta, SITES.peakSouth.phi, 0.3, 3.8);
-  h += blob(theta, phi, SITES.peakFar.theta, SITES.peakFar.phi, 0.24, 3.4);
+  h += massif(theta, phi, SITES.peakMatter.theta, SITES.peakMatter.phi, 0.32, 5.2);
+  h += massif(theta, phi, SITES.peakEiger.theta, SITES.peakEiger.phi, 0.28, 4.6);
+  h += massif(theta, phi, SITES.peakJung.theta, SITES.peakJung.phi, 0.26, 4.2);
+  h += massif(theta, phi, SITES.peakSouth.theta, SITES.peakSouth.phi, 0.3, 3.8);
+  h += massif(theta, phi, SITES.peakFar.theta, SITES.peakFar.phi, 0.24, 3.4);
   h += blob(theta, phi, SITES.cliffFace.theta, SITES.cliffFace.phi, 0.18, 2.2);
 
-  h -= blob(theta, phi, SITES.lakeGeneva.theta, SITES.lakeGeneva.phi, 0.2, 3.4);
-  h -= blob(theta, phi, SITES.lakeBrienz.theta, SITES.lakeBrienz.phi, 0.16, 3.0);
-  h -= blob(theta, phi, SITES.pondAlp.theta, SITES.pondAlp.phi, 0.09, 2.0);
-  h -= blob(theta, phi, SITES.lakeThun.theta, SITES.lakeThun.phi, 0.2, 3.6);
-  h -= blob(theta, phi, SITES.lakeLucerne.theta, SITES.lakeLucerne.phi, 0.17, 3.2);
-  h -= blob(theta, phi, SITES.lakeMaggiora.theta, SITES.lakeMaggiora.phi, 0.16, 3.0);
+  for (const lake of LAKES) {
+    const bearing = lakeBearing(theta, phi, lake);
+    const sigma = (lake.radius * lakeShoreScale(lake, bearing)) / PLANET.radius;
+    const d = angularDistance(theta, phi, lake.site.theta, lake.site.phi);
+    h -= (lake.depth * 2) / 3 * Math.exp(-(d * d) / (2 * sigma * sigma));
+  }
 
   h += blob(theta, phi, SITES.villageA.theta, SITES.villageA.phi, 0.14, 1.1);
   h += blob(theta, phi, SITES.villageB.theta, SITES.villageB.phi, 0.14, 1.0);
@@ -69,10 +83,34 @@ export function heightOffset(theta: number, phi: number): number {
   h += jagged(theta, phi, 0.92, 0.2, 0.08, 9);
   h += jagged(theta, phi, 1.34, 0.22, 0.07, 7.5);
   h += jagged(theta, phi, 1.02, 0.2, 0.11, 8);
-  h += blob(theta, phi, 0.7, 0.75, 0.17, 10);
-  h += blob(theta, phi, 1.68, 0.85, 0.15, 8.5);
-  h += blob(theta, phi, 0.68, 1.45, 0.16, 9);
-  h += blob(theta, phi, 1.7, 1.5, 0.14, 7.5);
+
+  const valleyMassifs: Array<[number, number, number, number]> = [
+    [0.75, 0.2, 0.13, 14],
+    [1.65, 0.22, 0.12, 12.5],
+    [0.75, 0.78, 0.12, 13],
+    [1.65, 0.82, 0.14, 14],
+    [0.75, 1.48, 0.14, 15],
+    [1.65, 1.54, 0.12, 13],
+    [0.75, 2.45, 0.14, 13],
+    [1.65, 2.5, 0.13, 14],
+    [0.75, 3.55, 0.12, 14],
+    [1.65, 3.62, 0.14, 13],
+    [0.75, 4.65, 0.13, 14],
+    [1.65, 4.72, 0.13, 12.5],
+    [0.75, 5.55, 0.14, 13],
+    [1.65, 5.62, 0.12, 14],
+  ];
+  for (const [peakTheta, peakPhi, sigma, amplitude] of valleyMassifs) {
+    h += massif(theta, phi, peakTheta, peakPhi, sigma, amplitude);
+  }
+  h += blob(theta, phi, 0.7, 0.75, 0.22, 2.8);
+  h += jagged(theta, phi, 0.7, 0.75, 0.14, 6.7);
+  h += blob(theta, phi, 1.68, 0.85, 0.2, 2.5);
+  h += jagged(theta, phi, 1.68, 0.85, 0.13, 5.9);
+  h += blob(theta, phi, 0.68, 1.45, 0.21, 2.7);
+  h += jagged(theta, phi, 0.68, 1.45, 0.13, 6.2);
+  h += blob(theta, phi, 1.7, 1.5, 0.19, 2.4);
+  h += jagged(theta, phi, 1.7, 1.5, 0.12, 5.3);
 
   // Narrow grass floor under the circuit so the train sits in a valley.
   const route: Array<[number, number]> = [
@@ -104,7 +142,7 @@ export function heightOffset(theta: number, phi: number): number {
   const grain = fbm3(p.x * 36.0, p.y * 36.0, p.z * 36.0, 2, 2.05, 0.5, 101);
   h += grain * 0.14;
 
-  return shapeHeight(h);
+  return shapeHeight(h * 1.65);
 }
 
 function shapeHeight(h: number): number {
@@ -117,7 +155,7 @@ function shapeHeight(h: number): number {
 
 /** Soft snow-line factor 0..1 from elevation and latitude-ish theta. */
 export function snowFactor(theta: number, height: number): number {
-  const altitude = (height - 4.5) / 6;
+  const altitude = (height - 8.5) / 11.5;
   const polar = 1 - Math.sin(theta);
   return Math.max(0, Math.min(1, altitude * 0.85 + polar * 0.25));
 }

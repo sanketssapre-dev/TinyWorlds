@@ -111,6 +111,22 @@ function paintStone(data: Uint8ClampedArray, size: number): void {
   }
 }
 
+function paintAlpineRock(data: Uint8ClampedArray, size: number): void {
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const broad = fbm(x / 34, y / 34, 57);
+      const grain = fbm(x / 8, y / 8, 63);
+      const fissure = Math.pow(1 - Math.abs(fbm(x / 17, y / 17, 69) - 0.5) * 2, 10);
+      const value = 98 + broad * 86 + grain * 30 - fissure * 34;
+      const i = (y * size + x) * 4;
+      data[i] = clampByte(value * 0.98);
+      data[i + 1] = clampByte(value);
+      data[i + 2] = clampByte(value * 1.04);
+      data[i + 3] = 255;
+    }
+  }
+}
+
 function paintGreen(data: Uint8ClampedArray, size: number): void {
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -197,19 +213,15 @@ function fbmTile(u: number, v: number, seed: number): number {
 }
 
 function paintMeadow(data: Uint8ClampedArray, size: number): void {
-  const blades = 36;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const u = x / size;
       const v = y / size;
       const broad = fbmTile(u, v, 4);
       const mid = fbmTile(u, v, 11);
-      const warp = fbmTile(u, v, 8);
-      const phase = (u * blades + warp * 1.6) * Math.PI * 2;
-      const blade = Math.pow(Math.abs(Math.sin(phase)), 10);
-      let r = 58 + broad * 70;
-      let g = 86 + broad * 70 + mid * 24;
-      let b = 32 + broad * 22;
+      let r = 64 + broad * 58;
+      let g = 88 + broad * 58 + mid * 18;
+      let b = 42 + broad * 24;
       const dry = smooth01(mid, 0.52, 0.74);
       r = r * (1 - dry) + (148 + broad * 24) * dry;
       g = g * (1 - dry) + (128 + broad * 18) * dry;
@@ -218,9 +230,6 @@ function paintMeadow(data: Uint8ClampedArray, size: number): void {
       r = r * (1 - lush) + (42 + mid * 16) * lush;
       g = g * (1 - lush) + (108 + mid * 30) * lush;
       b = b * (1 - lush) + (36 + mid * 10) * lush;
-      r += blade * 22;
-      g += blade * 36;
-      b += blade * 8;
       const i = (y * size + x) * 4;
       data[i] = clampByte(r);
       data[i + 1] = clampByte(g);
@@ -262,9 +271,9 @@ function drawGrass(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     const x = w * (0.08 + hash(i, 2, 3) * 0.84);
     const tip = h * (0.06 + hash(i, 4, 3) * 0.28);
     const lean = (hash(i, 5, 3) - 0.5) * w * 0.22;
-    const g = 58 + Math.floor(hash(i, 6, 3) * 42);
-    const r = 24 + Math.floor(hash(i, 7, 3) * 28);
-    ctx.strokeStyle = `rgba(${r},${g},${18 + Math.floor(hash(i, 8, 3) * 16)},0.95)`;
+    const g = 78 + Math.floor(hash(i, 6, 3) * 48);
+    const r = 34 + Math.floor(hash(i, 7, 3) * 26);
+    ctx.strokeStyle = `rgba(${r},${g},${24 + Math.floor(hash(i, 8, 3) * 18)},0.88)`;
     ctx.lineWidth = 3.2 + hash(i, 9, 3) * 3.2;
     ctx.lineCap = "round";
     ctx.beginPath();
@@ -435,6 +444,7 @@ export function alpineMaps(): Record<string, Texture> {
   cache = {
     grass: meadowTexture(),
     grassNor: loadPhoto(grassNorUrl, false),
+    alpineRock: makeTex(size, paintAlpineRock),
     rock: loadPhoto(cliffDiffUrl, true),
     rockNor: loadPhoto(cliffNorUrl, false),
     snow: loadPhoto(snowDiffUrl, true),
@@ -470,11 +480,10 @@ export function mappedStandard(
 export function createAlpinePlanetMaterial(): MeshStandardMaterial {
   const maps = alpineMaps();
   const mat = new MeshStandardMaterial({
-    map: maps.grass,
     roughness: 0.92,
     metalness: 0.02,
   });
-  mat.customProgramCacheKey = () => "alpine-triplanar-v19";
+  mat.customProgramCacheKey = () => "alpine-triplanar-v21";
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: maps.grass };
     shader.uniforms.uRock = { value: maps.rock };
@@ -544,31 +553,31 @@ export function createAlpinePlanetMaterial(): MeshStandardMaterial {
         float slope = 1.0 - clamp(dot(n, dir), 0.0, 1.0);
         float px = length(fwidth(vObjPos));
         float near = smoothstep(1.6, 0.18, px);
-        float detail = smoothstep(0.85, 0.1, px);
         float broad = noise3(dir * 3.2);
         float mottled = noise3(dir * 9.0);
         float turf = noise3(vObjPos * 0.45);
         float fine = noise3(vObjPos * 1.25);
-        vec3 meadow = mix(vec3(0.15, 0.30, 0.08), vec3(0.30, 0.46, 0.13), fine);
-        meadow = mix(meadow, vec3(0.48, 0.44, 0.16), smoothstep(0.56, 0.8, turf));
-        meadow = mix(meadow, vec3(0.18, 0.36, 0.1), smoothstep(0.6, 0.86, noise3(vObjPos * 0.16)));
+        vec3 meadow = mix(vec3(0.18, 0.29, 0.13), vec3(0.30, 0.40, 0.19), fine);
+        meadow = mix(meadow, vec3(0.44, 0.40, 0.21), smoothstep(0.56, 0.8, turf));
+        meadow = mix(meadow, vec3(0.17, 0.31, 0.15), smoothstep(0.6, 0.86, noise3(vObjPos * 0.16)));
         vec3 spruce = mix(vec3(0.05, 0.14, 0.07), vec3(0.10, 0.20, 0.09), mottled);
         float strata = sin(h * 5.4 + noise3(dir * 11.0) * 2.4);
         vec3 rockC = mix(vec3(0.32, 0.34, 0.36), vec3(0.58, 0.59, 0.60), broad);
         rockC = mix(rockC * vec3(0.74, 0.76, 0.78), rockC * vec3(1.08, 1.06, 1.04), smoothstep(-0.35, 0.9, strata));
         rockC *= mix(1.0, 0.55, smoothstep(0.76, 0.94, noise3(vObjPos * 1.7)));
         vec3 snowC = mix(vec3(0.76, 0.83, 0.90), vec3(0.97, 0.98, 0.99), noise3(vObjPos * 3.2));
-        float forestBand = smoothstep(0.8, 2.4, h) * (1.0 - smoothstep(5.2, 7.4, h));
+        float forestBand = smoothstep(1.4, 4.2, h) * (1.0 - smoothstep(12.0, 15.5, h));
         forestBand *= 1.0 - smoothstep(0.28, 0.55, slope);
         forestBand *= smoothstep(0.28, 0.62, noise3(dir * 5.5 + mottled));
-        float rockW = max(smoothstep(0.14, 0.38, slope), smoothstep(3.8, 6.8, h));
-        float snowW = smoothstep(7.0, 9.4, h);
+        float rockW = max(smoothstep(0.14, 0.38, slope), smoothstep(8.0, 14.0, h));
+        float snowW = smoothstep(9.0, 15.0, h);
         vec3 macro = mix(meadow, spruce, forestBand);
         macro = mix(macro, rockC, rockW);
         macro = mix(macro, snowC, snowW);
         macro *= mix(0.84, 1.06, broad);
-        float photoScale = 0.28;
+        float photoScale = 0.42;
         vec3 grass = triAt(uGrass, vObjPos, n, photoScale);
+        grass *= vec3(0.88, 0.86, 0.76);
         vec3 rock = triAt(uRock, vObjPos, n, photoScale);
         float rockLuma = dot(rock, vec3(0.3, 0.45, 0.25));
         rock = mix(rock, vec3(rockLuma), 0.7) * vec3(0.92, 0.95, 1.0);
@@ -576,13 +585,7 @@ export function createAlpinePlanetMaterial(): MeshStandardMaterial {
         vec3 photo = mix(grass, rock, rockW);
         photo = mix(photo, snow, snowW);
         photo = mix(photo, photo * vec3(0.42, 0.62, 0.46), forestBand * 0.7);
-        vec3 albedo = mix(macro, photo, 0.22 + near * 0.72);
-        float meadowMask = (1.0 - rockW) * (1.0 - snowW) * (1.0 - forestBand);
-        float warp = noise3(vObjPos * 0.65);
-        float streak = pow(abs(sin(vObjPos.x * 20.0 + vObjPos.z * 6.0 + warp * 5.0)), 4.0);
-        float streakB = pow(abs(sin(vObjPos.z * 20.0 - vObjPos.x * 5.0 + warp * 4.0)), 4.0);
-        float blades = max(streak, streakB * 0.85);
-        albedo = mix(albedo, meadow * vec3(0.7, 1.25, 0.58), meadowMask * detail * blades * 0.42);
+        vec3 albedo = mix(macro, photo, 0.18 + near * 0.46);
         float hem = smoothstep(0.1, 0.22, slope) * (1.0 - smoothstep(0.34, 0.52, slope)) * (1.0 - snowW);
         albedo = mix(albedo, albedo * vec3(0.82, 0.98, 0.5), hem * noise3(vObjPos * 2.1) * 0.45);
         float facing = clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0);
@@ -598,8 +601,8 @@ export function createAlpinePlanetMaterial(): MeshStandardMaterial {
           vec3 geoN = normalize(vObjNrm);
           float slopeN = 1.0 - clamp(dot(geoN, normalize(vObjPos)), 0.0, 1.0);
           float hN = length(vObjPos) - uRadius;
-          float rockWN = smoothstep(0.22, 0.48, slopeN);
-          float snowWN = smoothstep(0.15, 0.7, smoothstep(4.2, 8.2, hN));
+          float rockWN = max(smoothstep(0.22, 0.48, slopeN), smoothstep(8.0, 15.0, hN));
+          float snowWN = smoothstep(0.15, 0.7, smoothstep(7.5, 14.5, hN));
           vec3 raw = mix(triAt(uGrassNor, vObjPos, geoN, 0.36), triAt(uRockNor, vObjPos, geoN, 0.36), rockWN);
           raw = mix(raw, triAt(uSnowNor, vObjPos, geoN, 0.36), snowWN);
           float usable = smoothstep(0.08, 0.25, raw.b);

@@ -140,7 +140,9 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   window.addEventListener("resize", onResize);
 
   const loop = () => {
-    const dt = Math.min(clock.getDelta(), 0.05);
+    const elapsed = clock.getDelta();
+    // Keep motion tied to real time at low frame rates; ignore only tab-suspension gaps.
+    const dt = elapsed > 1 ? 0 : elapsed;
     const sample = train.update(dt);
     // Keep planet matrix current before camera reads world transforms
     planetWorld.updateMatrixWorld(true);

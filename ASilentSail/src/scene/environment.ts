@@ -1,7 +1,6 @@
 import {
   AdditiveBlending,
   AmbientLight,
-  BufferGeometry,
   Color,
   DataTexture,
   DirectionalLight,
@@ -12,8 +11,6 @@ import {
   LinearFilter,
   Mesh,
   MeshStandardMaterial,
-  Points,
-  PointsMaterial,
   RGBAFormat,
   Scene,
   SphereGeometry,
@@ -23,25 +20,24 @@ import {
   UnsignedByteType,
   Vector3,
 } from "three";
-import { MOON, STARFIELD, SUN } from "../config";
+import { MOON, SUN } from "../config";
 import { alpineMaps } from "../render/materials";
 import { fbm3, valueNoise3 } from "../math/noise";
-import { sphToCart } from "../math/sphere";
 
 /** Cosmic backdrop + lights + single cratered Moon. Not parented under the planet. */
 export function createEnvironment(scene: Scene): Group {
-  scene.background = new Color("#04050a");
-  scene.fog = new FogExp2("#0a1218", 0.00035);
+  scene.background = new Color("#78c5f2");
+  scene.fog = new FogExp2("#a9d8f1", 0.0011);
 
   const group = new Group();
   group.name = "environment";
 
-  const hemi = new HemisphereLight("#e4dfd4", "#3e4636", 0.72);
+  const hemi = new HemisphereLight("#c6e7ff", "#607348", 1.18);
   group.add(hemi);
-  const ambient = new AmbientLight("#a39e92", 0.32);
+  const ambient = new AmbientLight("#c2d8e2", 0.42);
   group.add(ambient);
 
-  const sunlight = new DirectionalLight("#f2e6c8", 2.15);
+  const sunlight = new DirectionalLight("#fff1d2", 2.4);
   sunlight.position.set(...SUN.direction);
   sunlight.castShadow = true;
   sunlight.shadow.mapSize.set(2048, 2048);
@@ -55,11 +51,10 @@ export function createEnvironment(scene: Scene): Group {
   group.add(sunlight);
   group.add(createVisibleSun());
 
-  const fill = new DirectionalLight("#9a907e", 0.2);
+  const fill = new DirectionalLight("#c2e4ff", 0.4);
   fill.position.set(-50, -40, -70);
   group.add(fill);
 
-  group.add(createStars());
   group.add(createMoon());
   return group;
 }
@@ -110,38 +105,6 @@ function createSunGlowTexture(): DataTexture {
   tex.minFilter = LinearFilter;
   tex.colorSpace = SRGBColorSpace;
   return tex;
-}
-
-function createStars(): Points {
-  const count = STARFIELD.count;
-  const positions = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    const u = Math.random();
-    const v = Math.random();
-    const theta = Math.acos(2 * u - 1);
-    const phi = v * Math.PI * 2;
-    const r =
-      STARFIELD.innerRadius +
-      Math.random() * (STARFIELD.outerRadius - STARFIELD.innerRadius);
-    const p = sphToCart(r, theta, phi);
-    positions[i * 3] = p.x;
-    positions[i * 3 + 1] = p.y;
-    positions[i * 3 + 2] = p.z;
-  }
-  const geo = new BufferGeometry();
-  geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  const mat = new PointsMaterial({
-    color: "#dce6f2",
-    size: 1.35,
-    sizeAttenuation: true,
-    transparent: true,
-    opacity: 0.85,
-    depthWrite: false,
-    fog: false,
-  });
-  const stars = new Points(geo, mat);
-  stars.name = "starfield";
-  return stars;
 }
 
 /** Realistic grey-white cratered Moon — independent of planet spin. */

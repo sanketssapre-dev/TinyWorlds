@@ -56,15 +56,11 @@ describe("railway path", () => {
     const at = new Vector3();
     let buried = 0;
     let checked = 0;
+    let maxGap = 0;
+    let maxBurial = 0;
     for (let i = 0; i < n; i++) {
       const s = path.samples[i];
       if (s.inTunnel || s.elevated) continue;
-      let reserved = false;
-      for (let k = -12; k <= 12; k++) {
-        const near = path.samples[(i + k + n) % n];
-        if (near.inTunnel || near.elevated) reserved = true;
-      }
-      if (reserved) continue;
       for (const lateral of [-TRACK.trackSpacing * 0.5, TRACK.trackSpacing * 0.5]) {
         at.copy(s.position).addScaledVector(s.binormal, lateral);
         const len = at.length() || 1;
@@ -72,11 +68,17 @@ describe("railway path", () => {
         const phi = Math.atan2(at.z, at.x);
         const ground = cut.radius(theta, phi);
         checked++;
+        if (ground > 1) {
+          maxGap = Math.max(maxGap, s.trackRadius - ground);
+          maxBurial = Math.max(maxBurial, ground - s.trackRadius);
+        }
         if (ground > 1 && ground > s.trackRadius + 0.45) buried++;
       }
     }
     expect(checked).toBeGreaterThan(100);
     expect(buried / checked).toBeLessThan(0.06);
+    expect(maxGap).toBeLessThan(0.5);
+    expect(maxBurial).toBeLessThan(0.12);
 
     // The shoulder beside the outer road stays down, so the second track
     // is not running up the slope.
@@ -85,12 +87,6 @@ describe("railway path", () => {
     for (let i = 0; i < n; i++) {
       const s = path.samples[i];
       if (s.inTunnel || s.elevated) continue;
-      let reserved = false;
-      for (let k = -12; k <= 12; k++) {
-        const near = path.samples[(i + k + n) % n];
-        if (near.inTunnel || near.elevated) reserved = true;
-      }
-      if (reserved) continue;
       for (const lateral of [-3.2, 3.2]) {
         at.copy(s.position).addScaledVector(s.binormal, lateral);
         const len = at.length() || 1;
