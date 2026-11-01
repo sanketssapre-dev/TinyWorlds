@@ -1,42 +1,28 @@
-# Verification report — Swiss Alps (ASilentSail)
+# ASilentSail — staged railway
 
-Date: 2026-10-25  
-Branch: `feature/asilentsail-swiss-alps`  
-Scope: **ASilentSail/ only** (root Pages / AnExplore untouched)
+This folder is a staged app. It is in the repository and opens from the Vite dev server at `/TinyWorlds/ASilentSail/`. GitHub Pages publishes AnExplore only. `vite.config.ts` builds the root `index.html` and leaves this app out of `dist`.
 
-## Commands run
+The scene is the Swiss Alps railway: planet radius 96, two roads, three carriages on each consist, stone viaducts on the lake crossings, and meadow over the tunnels. The camera cycles Train Follow, Free Planet Spin, and the driver’s view. “Tiny Worlds” is at the bottom left. The camera pin is at the bottom right and names the next mode.
 
-| Command | Result |
-| --- | --- |
-| `npm test` | 128/128 passed (incl. new Sail railway, camera, scale tests) |
-| `npx tsc --noEmit` | Clean |
-| `npm run dev` → `/TinyWorlds/ASilentSail/` | App boots; loader hides; no `#error` |
+## Check locally
 
-## Browser checks (automated)
+From the repo root:
 
-Automation cannot screenshot WebGL reliably in this environment; verification used canvas `readPixels` + runtime debug:
+```bash
+npm test
+npx tsc --noEmit
+npm run dev
+```
 
-| Check | Result |
-| --- | --- |
-| Train Follow on load | Yes — mode `trainFollow`, camera near track (~r 75) |
-| UI: BL button + BR “Tiny Worlds” | Present; button label “Free Planet Spin” |
-| Toggle → Free Planet Spin | Mode switches; label becomes “Train Follow” |
-| Ambient planet spin | `spinAngle` advances only in Free Planet Spin; stays 0 in Train Follow |
-| Train keeps moving in spin | `trainDist` increases while spinning |
-| Zoom gated | Unit test: wheel zoom ignored in Train Follow |
-| Planet silhouette in spin | Corner pixels `#04050a` (space); centre green terrain |
-| Moon / env independent | Moon lives under `environment`, not `planet-world` |
+Open http://localhost:5173/TinyWorlds/ASilentSail/
 
-## Manual follow-ups (recommended on your machine)
+On a real browser window:
 
-1. Open http://localhost:5173/TinyWorlds/ASilentSail/
-2. Confirm loco + 3 carriages, steam, track continuity through a full lap
-3. Toggle camera; confirm no drag-orbit; wheel zoom only in Free Planet Spin
-4. Confirm Moon holds still in space while the planet turns
+1. The chase starts behind our train, with the oncoming road beside it.
+2. `C` or the pin cycles Train Follow, Free Planet Spin, then the driver’s view.
+3. The wheel zooms only in Free Planet Spin. Drag does not orbit.
+4. In Free Planet Spin the planet turns and the Moon stays put in space.
 
-## Known limitations
+## Retired notes
 
-- Yacht world removed from this app folder; dormant `src/flight/` copy remains unused.
-- Not published to GitHub Pages / root index (intentional).
-- Tunnel portals / viaducts are simplified instances; further art pass welcome.
-- Browser automation screenshots of the canvas stay black; use a real Chrome window for visual QA.
+A checklist dated 2026-10-25 described an earlier build: a camera near radius 75, a two-mode camera, and the pin on the left. Those notes do not describe the current app.

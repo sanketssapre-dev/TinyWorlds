@@ -1,4 +1,4 @@
-/** Swiss Alps Sail world — enlarged planet, realistic Moon spacing. */
+/** Swiss Alps railway — enlarged planet, realistic Moon spacing. */
 
 export const PLANET = {
   /** Large enough that Alpine relief is surface detail, not the whole silhouette. */

@@ -1,13 +1,27 @@
 # Tiny Worlds
 
-Two quiet spherical worlds in the same universe — and a parallel one where the seas have risen.
+One spherical world is published. Two more are in the repository and run on the local dev server only.
 
-| World | Path (local dev) | GitHub Pages |
+## Published
+
+**AnExplore** is the GitHub Pages site. The root `index.html` loads `AnExplore/src/main.ts`. Vite’s production input is that file alone (`vite.config.ts`), with `base` `/TinyWorlds/`.
+
+A push to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml): Node 20, `npm run build`, then the `dist` artifact is deployed to GitHub Pages. `npm run build` typechecks every app, then emits AnExplore.
+
+Locally, after `npm run dev`:
+
+**http://localhost:5173/TinyWorlds/**
+
+AnExplore is a biplane over a small planet. The title sits at the bottom left. Two buttons sit at the bottom right: autopilot or manual flight, and the camera. `A` and `M` set the flight mode. `C` switches between the chase and the overhead view. Arrow keys steer and climb while flying by hand. The wheel zooms. On a touch screen, drag steers and a pinch zooms.
+
+## Staged
+
+`ASilentFlight/` and `ASilentSail/` are in git. The Vite dev server opens them. The production build leaves them out, so they are absent from GitHub Pages.
+
+| World | Local URL | What it is |
 | --- | --- | --- |
-| **A Silent Flight** — biplane cruise | `/ASilentFlight/` | `/TinyWorlds/ASilentFlight/` |
-| **A Silent Sail** — yacht cruise on a flooded globe | `/ASilentSail/` | `/TinyWorlds/ASilentSail/` |
-
-The repo root (`/`) is a small picker linking to both.
+| **A Silent Flight** | http://localhost:5173/TinyWorlds/ASilentFlight/ | Earlier biplane cruise |
+| **A Silent Sail** | http://localhost:5173/TinyWorlds/ASilentSail/ | Swiss Alps railway. The folder name remains from the old yacht app. See [ASilentSail/README.md](ASilentSail/README.md). |
 
 ## Run
 
@@ -16,23 +30,16 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints, then choose **A Silent Flight** or **A Silent Sail**, or go directly to `/ASilentFlight/` or `/ASilentSail/`.
-
 ```bash
 npm test
 npm run build
 npm run preview
 ```
 
-## Controls
-
-One button switches the camera and clears a free look. Drag to look. Scroll or pinch to zoom. `C` switches the view.
-
 ## Architecture
 
-Vanilla TypeScript, Vite, and Three.js. The two worlds live in separate folders and do not import each other.
+Vanilla TypeScript, Vite 5, and Three.js. The three apps live in separate folders and do not import each other.
 
-- `ASilentFlight/` — original **Silent Flight** app.
-- `ASilentSail/` — **Silent Sail**. Shared helpers are copied under `ASilentSail/src/flight/` so this world can change without touching Flight.
-
-GitHub Pages deploys the root picker at `/TinyWorlds/`, with each world at `/TinyWorlds/ASilentFlight/` and `/TinyWorlds/ASilentSail/`.
+- `AnExplore/` — the published site.
+- `ASilentFlight/` — staged flight world.
+- `ASilentSail/` — staged railway. `ASilentSail/src/flight/` is an unused copy and is not part of the train scene.
