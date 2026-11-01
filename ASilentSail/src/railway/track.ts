@@ -57,7 +57,6 @@ export function buildTrack(path: RailwayPath, surface: PlanetSurface): Group {
     metalness: 0.04,
     normalMap: maps.woodNor,
   });
-  const ballastMat = mappedStandard(maps.ballast, { roughness: 0.96, color: "#3e3a34" });
   const stoneMat = mappedStandard(maps.stone, { roughness: 0.9 });
 
   const railGeo = new CylinderGeometry(TRACK.railRadius, TRACK.railRadius, 1, 6);
@@ -67,9 +66,6 @@ export function buildTrack(path: RailwayPath, surface: PlanetSurface): Group {
     TRACK.sleeperHeight,
     TRACK.sleeperLength,
   );
-  const ballastGeo = new BoxGeometry(TRACK.ballastWidth, 0.06, TRACK.sleeperSpacing * 0.95);
-  const fillGeo = new BoxGeometry(TRACK.ballastWidth, 1, TRACK.sleeperSpacing * 1.15);
-  fillGeo.translate(0, -0.5, 0);
   const plinthGeo = new BoxGeometry(7.4, 1, 1.3);
   plinthGeo.translate(0, -0.5, 0);
   const archGeo = archBayGeometry();
@@ -110,8 +106,6 @@ export function buildTrack(path: RailwayPath, surface: PlanetSurface): Group {
   const deckList: Matrix4[] = [];
   const portalList: Matrix4[] = [];
   const plinthList: Matrix4[] = [];
-  const ballastList: Matrix4[] = [];
-  const fillList: Matrix4[] = [];
   let lastPierS = -TRACK.pierSpacing;
   let lastPortalS = -20;
 
@@ -124,14 +118,6 @@ export function buildTrack(path: RailwayPath, surface: PlanetSurface): Group {
       seatOnFormation(sample, lanes[lane], 0.07, tmpPos);
       tmpMat.compose(tmpPos, tmpQuat, tmpScale.set(1, 1, 1));
       sleepers.setMatrixAt(lane * sleeperCount + i, tmpMat);
-    }
-
-    // The base under the sleepers is only the fill that keeps the rails off a
-    // dip. Calm ground and the viaduct deck stay clear of that plank layer.
-    const needsBase = !sample.inTunnel && !sample.elevated && sample.elevation > 0.6;
-    if (needsBase) {
-      seatOnFormation(sample, 0, 0.02, tmpPos);
-      ballastList.push(new Matrix4().compose(tmpPos, tmpQuat, new Vector3(1, 1, 1)));
     }
 
     // Short chords along each road, one per sleeper, so the outer rails
@@ -155,13 +141,6 @@ export function buildTrack(path: RailwayPath, surface: PlanetSurface): Group {
       }
     }
     align(tmpQuat, sample.tangent, sample.normal);
-
-    if (needsBase) {
-      const gap = sample.elevation + 0.1;
-      fillList.push(
-        new Matrix4().compose(sample.position.clone(), tmpQuat, new Vector3(1, gap, 1)),
-      );
-    }
 
     if (sample.elevated && s - lastPierS >= TRACK.pierSpacing) {
       const span = Math.max(0.95, sample.elevation + 0.2);
@@ -196,29 +175,6 @@ export function buildTrack(path: RailwayPath, surface: PlanetSurface): Group {
   leftRails.instanceMatrix.needsUpdate = true;
   rightRails.instanceMatrix.needsUpdate = true;
   root.add(leftRails, rightRails, sleepers);
-  if (ballastList.length > 0) {
-    const ballasts = new InstancedMesh(ballastGeo, ballastMat, ballastList.length);
-    ballasts.name = "ballast";
-    ballasts.receiveShadow = true;
-    ballastList.forEach((m, i) => ballasts.setMatrixAt(i, m));
-    ballasts.instanceMatrix.needsUpdate = true;
-    root.add(ballasts);
-  }
-
-  if (fillList.length > 0) {
-    const fillMat = mappedStandard(maps.ballast, { roughness: 0.94, color: "#8a8172" });
-    fillMat.polygonOffset = true;
-    fillMat.polygonOffsetFactor = 1;
-    fillMat.polygonOffsetUnits = 1;
-    const fills = new InstancedMesh(fillGeo, fillMat, fillList.length);
-    fills.name = "embankment";
-    fills.castShadow = false;
-    fills.receiveShadow = true;
-    fillList.forEach((m, i) => fills.setMatrixAt(i, m));
-    fills.instanceMatrix.needsUpdate = true;
-    root.add(fills);
-  }
-
   if (archList.length > 0) {
     const arches = new InstancedMesh(archGeo, stoneMat, archList.length);
     const decks = new InstancedMesh(deckGeo, stoneMat, deckList.length);

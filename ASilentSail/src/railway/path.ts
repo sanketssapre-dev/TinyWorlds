@@ -93,21 +93,32 @@ function smoothCircular(values: number[], radius: number): number[] {
   return out;
 }
 
-/** Wide grade line. Peaks are cleared, then low-passed, so the train does not pitch over every hummock. */
+/** Follow the ground with a smooth, slope-limited grade instead of bridging broad shallow dips. */
 function formationRadius(grounds: number[]): number[] {
   const n = grounds.length;
-  const cleared = new Array<number>(n);
-  const peak = 10;
-  for (let i = 0; i < n; i++) {
-    let high = grounds[i];
-    for (let k = 1; k <= peak; k++) {
-      high = Math.max(high, grounds[(i + k) % n], grounds[(i - k + n) % n]);
+  const grade = grounds.map((ground) => ground + 0.06);
+  const maxStep = ((2 * Math.PI * PLANET.radius) / n) * 0.085;
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      const next = (i + 1) % n;
+      const required = grade[i] - maxStep;
+      if (grade[next] < required) {
+        grade[next] = required;
+        changed = true;
+      }
     }
-    cleared[i] = high;
+    for (let i = n - 1; i >= 0; i--) {
+      const previous = (i - 1 + n) % n;
+      const required = grade[i] - maxStep;
+      if (grade[previous] < required) {
+        grade[previous] = required;
+        changed = true;
+      }
+    }
+    if (!changed) break;
   }
-  let grade = smoothCircular(cleared, 32);
-  grade = smoothCircular(grade, 18);
-  return liftClearance(grade, grounds, 0.06, 12, 4);
+  return grade;
 }
 
 /** Add a smoothed lift wherever the grade still cuts the mesh, so the correction is a ramp, not a kink. */

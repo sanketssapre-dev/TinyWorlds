@@ -2,7 +2,7 @@
 
 This folder is a staged app. It is in the repository and opens from the Vite dev server at `/TinyWorlds/ASilentSail/`. GitHub Pages publishes AnExplore only. `vite.config.ts` builds the root `index.html` and leaves this app out of `dist`.
 
-The scene is the Swiss Alps railway: planet radius 96, two roads, three carriages on each consist, stone viaducts on the lake crossings, and meadow over the tunnels. The camera cycles Train Follow, Free Planet Spin, and the driver’s view. “Tiny Worlds” is at the bottom left. The camera pin is at the bottom right and names the next mode.
+The scene is the Swiss Alps railway: a 144-unit planet with snowy massifs, summer valleys, forest belts, clustered chalets, two roads, and three carriages on each autonomous consist. Lake crossings use stone viaducts, and tunnel roofs continue the meadow. The camera cycles Train Follow, Free Planet Spin, and the driver’s view. “Tiny Worlds” is at the bottom left. The camera pin is at the bottom right and names the next mode.
 
 ## Check locally
 
@@ -18,10 +18,11 @@ Open http://localhost:5173/TinyWorlds/ASilentSail/
 
 On a real browser window:
 
-1. The chase starts behind our train, with the oncoming road beside it.
-2. `C` or the pin cycles Train Follow, Free Planet Spin, then the driver’s view.
-3. The wheel zooms only in Free Planet Spin. Drag does not orbit.
-4. In Free Planet Spin the planet turns and the Moon stays put in space.
+1. The chase starts behind our train, with the oncoming road beside it and the sunny Alpine valley ahead.
+2. Both roads meet the graded meadow in open sections; only lake crossings and deep spans use stone viaducts.
+3. `C` or the pin cycles Train Follow, Free Planet Spin, then the driver’s view.
+4. The wheel zooms only in Free Planet Spin. Drag does not orbit.
+5. In Free Planet Spin the planet turns and the Moon stays put in space.
 
 ## Retired notes
 

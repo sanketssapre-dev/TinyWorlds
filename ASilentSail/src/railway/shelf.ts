@@ -5,17 +5,17 @@ import type { RailwayPath } from "./path";
 /** Full bench. The chase camera sits outside the second road, so the
  * slope has to start well past that road or the outer track reads as
  * running along the raw hillside. */
-const FLAT = 5.1;
+const FLAT = 3.5;
 /** Shoulder where the cutting eases back into the hillside. */
-const HALF = 7.6;
+const HALF = 11.5;
 const ALONG = 2.1;
 /** Just under the ballast, so the bed meets the grass instead of floating. */
 const SHELF_DROP = 0.06;
 
 /**
- * Lower open-ground vertices beside the railway onto the formation.
- * A constant sideways copy of the centre line otherwise runs into the raw
- * side slope, so the outer road leaves the bed.
+ * Grade open-ground vertices beside the railway to the formation.
+ * Cutting high ground and filling shallow dips keeps both roads on a continuous
+ * meadow bench; deeper crossings remain viaducts.
  */
 export function cutRailwayShelf(geo: BufferGeometry, path: RailwayPath): void {
   const pos = geo.attributes.position as BufferAttribute;
@@ -23,16 +23,7 @@ export function cutRailwayShelf(geo: BufferGeometry, path: RailwayPath): void {
   const n = samples.length;
   const open = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    if (samples[i].inTunnel || samples[i].elevated) continue;
-    let clear = true;
-    for (let k = -12; k <= 12; k++) {
-      const near = samples[(i + k + n) % n];
-      if (near.inTunnel || near.elevated) {
-        clear = false;
-        break;
-      }
-    }
-    if (clear) open[i] = 1;
+    if (!samples[i].inTunnel && !samples[i].elevated) open[i] = 1;
   }
 
   const PHI_BINS = 240;
@@ -79,15 +70,13 @@ export function cutRailwayShelf(geo: BufferGeometry, path: RailwayPath): void {
         }
       }
     }
-    if (!found || bestUp < 0.08) continue;
-    // Shave the berm. A hard cap here left the slope standing just past the outer rail.
-    if (bestUp > 11) continue;
+    if (!found || bestUp > 11) continue;
 
     const edge = Math.min(1, Math.max(0, (bestSide - FLAT) / (HALF - FLAT)));
     const keep = edge * edge;
     const shelf = bestR - SHELF_DROP;
     const newR = shelf + (r - shelf) * keep;
-    if (newR < r - 0.02) {
+    if (Math.abs(newR - r) > 0.02) {
       v.multiplyScalar(newR / r);
       pos.setXYZ(i, v.x, v.y, v.z);
     }

@@ -1,13 +1,13 @@
 /** Swiss Alps railway — enlarged planet, realistic Moon spacing. */
 
 export const PLANET = {
-  /** Large enough that Alpine relief is surface detail, not the whole silhouette. */
-  radius: 96,
-  diameter: 192,
-  atmosphereRadius: 1600,
-  /** ~12% of radius — mountains up close, a round limb from orbit. */
-  maxHeight: 12,
-  minHeight: -1.2,
+  /** Broad enough for layered valleys and massifs around the miniature railway. */
+  radius: 144,
+  diameter: 288,
+  atmosphereRadius: 2200,
+  /** Alpine relief remains prominent without overwhelming the globe silhouette. */
+  maxHeight: 22,
+  minHeight: -2,
 } as const;
 
 export const ATMOSPHERE = {
@@ -20,7 +20,7 @@ export const TRAIN = {
   carriageLength: 2.5,
   carriageGap: 0.16,
   /** World units per second along arc length. */
-  cruiseSpeed: 0.66,
+  cruiseSpeed: 1.32,
   /** Driving-wheel radius. Wheel spin uses this so the rims match the ground speed. */
   wheelRadius: 0.17,
 } as const;
@@ -39,7 +39,7 @@ export const TRACK = {
   trackSpacing: 1.36,
   bedOffset: 0.12,
   pierSpacing: 2.1,
-  elevatedThreshold: 2.2,
+  elevatedThreshold: 4.5,
   tunnelClearance: 2.4,
 } as const;
 
@@ -52,9 +52,9 @@ export const SUN = {
 
 /** Single lunar companion — Earth-ish proportions, cinematic distance. */
 export const MOON = {
-  /** ~1/3.7 of planet radius (Earth ratio), readable at miniature scale. */
-  radius: 26,
-  /** ~4.5 planet radii — farther than the old dual-moon setup. */
+  /** Retain the companion's readable miniature-world proportion. */
+  radius: 39,
+  /** Four and a half planet radii keeps the Moon clearly beyond the Alpine horizon. */
   orbitDistance: PLANET.radius * 4.5,
   /** North-east of the initial framing. */
   direction: [0.62, 0.28, 0.72] as const,
@@ -67,20 +67,20 @@ export const STARFIELD = {
 } as const;
 
 export const CAMERA = {
-  fov: 58,
+  fov: 62,
   near: 0.2,
   far: 8000,
   /** Driver's window. A little wider than the chase, and near enough to keep the frame. */
   cabFov: 66,
   cabNear: 0.04,
-  followDistance: 16,
-  followHeight: 7.2,
-  lookAhead: 16,
+  followDistance: 18,
+  followHeight: 5.2,
+  lookAhead: 24,
   /** Wide Free Planet Spin framing — planet disk + Moon readable. */
   /** Far enough that the full disk sits in space, not a curved wall. */
-  spinDistance: 520,
-  minSpinZoom: 240,
-  maxSpinZoom: 980,
+  spinDistance: 720,
+  minSpinZoom: 420,
+  maxSpinZoom: 1500,
   damping: 2.6,
   /** Ambient Free Planet Spin rate (rad/s). ~one turn every ~3 minutes. */
   planetSpinRate: 0.035,

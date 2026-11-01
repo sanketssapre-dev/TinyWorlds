@@ -16,7 +16,7 @@ import {
 import { PLANET, WATER } from "../config";
 import { sphToCart, wrapPhi } from "../math/sphere";
 import { heightOffset } from "./height";
-import { LAKES, SITES } from "./features";
+import { lakeShoreScale, LAKES, SITES } from "./features";
 
 let time = 0;
 const waterMats: ShaderMaterial[] = [];
@@ -28,15 +28,16 @@ export function createWater(): Group {
   for (const lake of LAKES) {
     const floor = heightOffset(lake.site.theta, lake.site.phi);
     const surfaceH = floor + 0.22 + WATER.lakeLevelBias;
-    const geo = lakeCap(lake.site.theta, lake.site.phi, lake.radius, PLANET.radius + surfaceH);
+    const geo = lakeCap(lake, PLANET.radius + surfaceH);
     const mat = new ShaderMaterial({
       transparent: true,
       side: DoubleSide,
       depthWrite: false,
       uniforms: {
         uTime: { value: 0 },
-        uColor: { value: new Color("#2f7f96") },
-        uDeep: { value: new Color("#0e3c52") },
+        uColor: { value: new Color("#64c0c2") },
+        uDeep: { value: new Color("#2f7288") },
+        uShallows: { value: new Color("#b0e5d7") },
       },
       vertexShader: `
         varying vec2 vUv;
@@ -49,15 +50,20 @@ export function createWater(): Group {
         uniform float uTime;
         uniform vec3 uColor;
         uniform vec3 uDeep;
+        uniform vec3 uShallows;
         varying vec2 vUv;
         void main() {
           vec2 p = vUv - 0.5;
           float r = length(p) * 2.0;
           float wave = sin((p.x * 18.0 + uTime * 1.2)) * 0.04
                      + sin((p.y * 14.0 - uTime * 0.9)) * 0.03;
-          float alpha = smoothstep(1.02, 0.84, r) * 0.94;
-          vec3 col = mix(uDeep, uColor, 0.55 + wave);
+          float edge = smoothstep(0.78, 0.99, r);
+          float alpha = (1.0 - smoothstep(0.91, 1.0, r)) * 0.94;
+          vec3 col = mix(uDeep, uColor, 0.35 + edge * 0.42 + wave);
+          col = mix(col, uShallows, edge * 0.78);
           gl_FragColor = vec4(col, alpha);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }
       `,
     });
@@ -138,8 +144,9 @@ function createWaterfall(): Group {
 }
 
 /** Spherical cap so a wide lake follows the planet instead of sagging at the rim. */
-function lakeCap(theta: number, phi: number, worldRadius: number, radial: number): BufferGeometry {
-  const angular = worldRadius / PLANET.radius;
+function lakeCap(lake: (typeof LAKES)[number], radial: number): BufferGeometry {
+  const { theta, phi } = lake.site;
+  const angular = lake.radius / PLANET.radius;
   const rings = 6;
   const segs = 36;
   const positions: number[] = [];
@@ -156,7 +163,12 @@ function lakeCap(theta: number, phi: number, worldRadius: number, radial: number
     const uvR = (0.5 * ring) / rings;
     for (let s = 0; s < segs; s++) {
       const t = (s / segs) * Math.PI * 2;
-      const p = sphToCart(radial, theta + Math.cos(t) * a, wrapPhi(phi + (Math.sin(t) * a) / sinT));
+      const shore = lakeShoreScale(lake, t);
+      const p = sphToCart(
+        radial,
+        theta + Math.cos(t) * a * shore,
+        wrapPhi(phi + (Math.sin(t) * a * shore) / sinT),
+      );
       positions.push(p.x, p.y, p.z);
       uvs.push(0.5 + Math.cos(t) * uvR, 0.5 + Math.sin(t) * uvR);
     }
