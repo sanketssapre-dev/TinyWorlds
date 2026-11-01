@@ -68,8 +68,8 @@ The landscape carries its color in the rendered world—sunlit meadow, forest, b
 
 ## Typography
 
-**Display Font:** Palatino Linotype, with Palatino and Times New Roman fallbacks  
-**Body Font:** Palatino Linotype, with Palatino, Book Antiqua, and Georgia fallbacks  
+**Display Font:** Palatino Linotype, with Palatino and Times New Roman fallbacks
+**Body Font:** Palatino Linotype, with Palatino, Book Antiqua, and Georgia fallbacks
 **Label Font:** Segoe UI, system-ui, sans-serif
 
 **Character:** The serif wordmark gives the miniature world a quiet, storybook quality. The sans-serif stack is reserved for compact controls and their functional labels.
