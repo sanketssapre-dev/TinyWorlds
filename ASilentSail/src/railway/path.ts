@@ -21,6 +21,8 @@ export type PathSample = {
   groundRadius: number;
   elevation: number;
   inTunnel: boolean;
+  /** Inside a lake crossing, even when the gap is too modest for a mountain fill. */
+  bridge: boolean;
   elevated: boolean;
 };
 
@@ -91,6 +93,44 @@ function smoothCircular(values: number[], radius: number): number[] {
   return out;
 }
 
+/** Wide grade line. Peaks are cleared, then low-passed, so the train does not pitch over every hummock. */
+function formationRadius(grounds: number[]): number[] {
+  const n = grounds.length;
+  const cleared = new Array<number>(n);
+  const peak = 10;
+  for (let i = 0; i < n; i++) {
+    let high = grounds[i];
+    for (let k = 1; k <= peak; k++) {
+      high = Math.max(high, grounds[(i + k) % n], grounds[(i - k + n) % n]);
+    }
+    cleared[i] = high;
+  }
+  let grade = smoothCircular(cleared, 32);
+  grade = smoothCircular(grade, 18);
+  return liftClearance(grade, grounds, 0.06, 12, 4);
+}
+
+/** Add a smoothed lift wherever the grade still cuts the mesh, so the correction is a ramp, not a kink. */
+function liftClearance(
+  grade: number[],
+  grounds: number[],
+  margin: number,
+  radius: number,
+  passes: number,
+): number[] {
+  const n = grade.length;
+  let ride = grade;
+  for (let pass = 0; pass < passes; pass++) {
+    const deficit = new Array<number>(n);
+    for (let i = 0; i < n; i++) deficit[i] = Math.max(0, grounds[i] + margin - ride[i]);
+    const lift = smoothCircular(deficit, radius);
+    const next = new Array<number>(n);
+    for (let i = 0; i < n; i++) next[i] = ride[i] + lift[i];
+    ride = next;
+  }
+  return ride;
+}
+
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const span = edge1 - edge0;
   const t = span === 0 ? 0 : Math.min(1, Math.max(0, (x - edge0) / span));
@@ -102,7 +142,11 @@ const BRIDGES = [
   { theta: SITES.lakeBrienz.theta, phi: SITES.lakeBrienz.phi, reach: 0.17, clearance: 1.5 },
 ];
 
-/** Extra height above the rails while they cross a lake. Added, not used as an absolute radius. */
+/** A lake crossing is a viaduct once the rails are clearly off the water, not only past the deep-gap threshold. */
+function isViaduct(elevation: number, bridge: boolean): boolean {
+  return elevation > TRACK.elevatedThreshold || (bridge && elevation > 1.05);
+}
+
 function bridgeClearance(theta: number, phi: number): number {
   let lift = 0;
   for (const lake of BRIDGES) {
@@ -151,25 +195,15 @@ export function createRailwayPath(
     rides.push(ground + TRACK.bedOffset);
   }
 
-  const smoothGround = smoothCircular(grounds, 3);
-  for (let i = 0; i < sampleCount; i++) {
-    rides[i] = smoothGround[i] + TRACK.bedOffset + bridgeClearance(thetas[i], phis[i]);
-  }
   const tunnels = applyTunnelCut(thetas, phis);
+  // A railway formation, not the grass. Local stones are filled or ignored.
+  // The grade only climbs where a whole hillside does.
+  const bed = formationRadius(grounds);
+  for (let i = 0; i < sampleCount; i++) {
+    rides[i] = bed[i] + 0.14 + bridgeClearance(thetas[i], phis[i]);
+  }
   let smoothRide = smoothCircular(rides, 8);
-  // Smoothing cuts chords through the mesh. Seat on the smoothed ground,
-  // not the raw samples, so the rails stay a curve a train can follow.
-  // The bore is a gallery over the rails. Dipping the ride puts the train
-  // through the hillside instead of through the mouth.
-  for (let i = 0; i < sampleCount; i++) {
-    const seated = smoothGround[i] + TRACK.bedOffset + 0.22;
-    smoothRide[i] = Math.max(smoothRide[i], seated);
-  }
-  smoothRide = smoothCircular(smoothRide, 4);
-  for (let i = 0; i < sampleCount; i++) {
-    const clear = grounds[i] + 0.28;
-    if (smoothRide[i] < clear) smoothRide[i] = clear;
-  }
+  smoothRide = liftClearance(smoothRide, grounds, 0.1, 6, 6);
 
   const positions: Vector3[] = [];
   for (let i = 0; i < sampleCount; i++) {
@@ -193,10 +227,18 @@ export function createRailwayPath(
     const next = positions[(i + 1) % sampleCount];
     const tangent = next.clone().sub(prev).normalize();
     const frame = orthonormalFrame(positions[i], tangent, prevSide);
+    // Keep the road's up outward, and the side continuous, so the second
+    // track cannot swap sides where the cross product flips.
+    if (frame.normal.dot(positions[i]) < 0) {
+      frame.normal.negate();
+      frame.binormal.negate();
+    }
+    if (prevSide && frame.binormal.dot(prevSide) < 0) frame.binormal.negate();
     prevSide = frame.binormal;
-    const groundR = smoothGround[i];
+    const groundR = grounds[i];
     const trackR = smoothRide[i];
     const elev = trackR - groundR;
+    const bridge = bridgeClearance(thetas[i], phis[i]) > 0.4;
     samples.push({
       position: positions[i].clone(),
       tangent: frame.tangent,
@@ -207,7 +249,8 @@ export function createRailwayPath(
       groundRadius: groundR,
       elevation: elev,
       inTunnel: tunnels[i],
-      elevated: elev > TRACK.elevatedThreshold,
+      bridge,
+      elevated: isViaduct(elev, bridge),
     });
   }
 
@@ -248,7 +291,8 @@ export function getSampleAt(
   out.groundRadius = a.groundRadius + (b.groundRadius - a.groundRadius) * t;
   out.elevation = a.elevation + (b.elevation - a.elevation) * t;
   out.inTunnel = t < 0.5 ? a.inTunnel : b.inTunnel;
-  out.elevated = out.elevation > TRACK.elevatedThreshold;
+  out.bridge = t < 0.5 ? a.bridge : b.bridge;
+  out.elevated = isViaduct(out.elevation, out.bridge);
   return out;
 }
 
@@ -263,6 +307,7 @@ export function scratchSample(): PathSample {
     groundRadius: 0,
     elevation: 0,
     inTunnel: false,
+    bridge: false,
     elevated: false,
   };
 }

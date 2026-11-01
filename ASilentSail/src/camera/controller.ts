@@ -1,13 +1,23 @@
-import { Group, PerspectiveCamera, Quaternion, Vector3 } from "three";
+import { Group, Object3D, PerspectiveCamera, Quaternion, Vector3 } from "three";
 import { CAMERA, PLANET } from "../config";
 import { heightOffset } from "../planet/height";
 import type { PathSample } from "../railway/path";
 
-export type CameraMode = "trainFollow" | "freePlanetSpin";
+export type CameraMode = "trainFollow" | "freePlanetSpin" | "cab";
+
+const CYCLE: CameraMode[] = ["trainFollow", "freePlanetSpin", "cab"];
+
+const MODE_LABEL: Record<CameraMode, string> = {
+  trainFollow: "Train Follow",
+  freePlanetSpin: "Free Planet Spin",
+  cab: "Driver's view",
+};
 
 export type CameraRig = {
   camera: PerspectiveCamera;
   mode: CameraMode;
+  /** Mode whose pose is already applied. A change snaps instead of drifting. */
+  posedMode: CameraMode;
   /** Zoom distance used only in Free Planet Spin. */
   spinZoom: number;
   planetGroup: Group;
@@ -27,12 +37,18 @@ const worldSamplePos = new Vector3();
 const worldTangent = new Vector3();
 const worldNormal = new Vector3();
 const worldBinormal = new Vector3();
+/** Eye in locomotive space, above the boiler crown and back from the front glass. */
+const cabEye = new Vector3(0, 1.48, -0.64);
+/** Down the line, just over the barrel, so the mountain fills the glass. */
+const cabLook = new Vector3(0, 1.34, 18);
+const cabUp = new Vector3(0, 1, 0);
 
 export function createCamera(aspect: number, planetGroup: Group): CameraRig {
   const camera = new PerspectiveCamera(CAMERA.fov, aspect, CAMERA.near, CAMERA.far);
   return {
     camera,
     mode: "trainFollow",
+    posedMode: "trainFollow",
     spinZoom: CAMERA.spinDistance,
     planetGroup,
     spinAngle: 0,
@@ -40,17 +56,15 @@ export function createCamera(aspect: number, planetGroup: Group): CameraRig {
 }
 
 export function toggleCameraMode(rig: CameraRig): void {
-  if (rig.mode === "trainFollow") {
-    rig.mode = "freePlanetSpin";
-    rig.spinZoom = CAMERA.spinDistance;
-  } else {
-    rig.mode = "trainFollow";
-    // Freeze planet rotation where it is — stop ambient spin
-  }
+  const index = CYCLE.indexOf(rig.mode);
+  const next = CYCLE[(index + 1) % CYCLE.length];
+  rig.mode = next;
+  if (next === "freePlanetSpin") rig.spinZoom = CAMERA.spinDistance;
 }
 
 export function modeButtonLabel(rig: CameraRig): string {
-  return rig.mode === "trainFollow" ? "Free Planet Spin" : "Train Follow";
+  const index = CYCLE.indexOf(rig.mode);
+  return MODE_LABEL[CYCLE[(index + 1) % CYCLE.length]];
 }
 
 export function adjustSpinZoom(rig: CameraRig, delta: number): void {
@@ -58,47 +72,73 @@ export function adjustSpinZoom(rig: CameraRig, delta: number): void {
   rig.spinZoom = clamp(rig.spinZoom + delta, CAMERA.minSpinZoom, CAMERA.maxSpinZoom);
 }
 
-export function snapCamera(rig: CameraRig, sample: PathSample): void {
-  place(rig, sample, desiredPos, desiredLook, desiredUp);
+export function snapCamera(rig: CameraRig, sample: PathSample, loco: Object3D): void {
+  applyLens(rig);
+  place(rig, sample, loco, desiredPos, desiredLook, desiredUp);
   dampedPos.copy(desiredPos);
   dampedLook.copy(desiredLook);
   dampedUp.copy(desiredUp);
+  rig.posedMode = rig.mode;
   apply(rig, 1);
 }
 
-export function updateCamera(rig: CameraRig, dt: number, sample: PathSample): void {
+export function updateCamera(rig: CameraRig, dt: number, sample: PathSample, loco: Object3D): void {
   if (rig.mode === "freePlanetSpin") {
     rig.spinAngle += CAMERA.planetSpinRate * dt;
     rig.planetGroup.rotation.y = rig.spinAngle;
   }
-  // Train Follow: do not advance ambient planet rotation
+  // Train Follow and the driver's seat stay with the rails. Spin waits.
 
-  place(rig, sample, desiredPos, desiredLook, desiredUp);
-  const k = 1 - Math.exp(-CAMERA.damping * dt);
+  applyLens(rig);
+  place(rig, sample, loco, desiredPos, desiredLook, desiredUp);
+  const entered = rig.posedMode !== rig.mode;
+  if (entered) rig.posedMode = rig.mode;
+  const locked = rig.mode === "cab" || entered;
+  const k = locked ? 1 : 1 - Math.exp(-CAMERA.damping * dt);
   dampedPos.lerp(desiredPos, k);
   dampedLook.lerp(desiredLook, k);
   dampedUp.lerp(desiredUp, k).normalize();
-  avoidPlanet(dampedPos, rig.mode === "trainFollow", sample.inTunnel);
-  apply(rig, 1 - Math.exp(-7.5 * dt));
+  if (rig.mode !== "cab") avoidPlanet(dampedPos, rig.mode === "trainFollow", sample.inTunnel);
+  apply(rig, locked ? 1 : 1 - Math.exp(-7.5 * dt));
+}
+
+function applyLens(rig: CameraRig): void {
+  const cab = rig.mode === "cab";
+  const fov = cab ? CAMERA.cabFov : CAMERA.fov;
+  const near = cab ? CAMERA.cabNear : CAMERA.near;
+  if (rig.camera.fov === fov && rig.camera.near === near) return;
+  rig.camera.fov = fov;
+  rig.camera.near = near;
+  rig.camera.updateProjectionMatrix();
 }
 
 function place(
   rig: CameraRig,
   sample: PathSample,
+  loco: Object3D,
   pos: Vector3,
   look: Vector3,
   up: Vector3,
 ): void {
+  if (rig.mode === "cab") {
+    placeCab(loco, pos, look, up);
+    return;
+  }
+
   toWorld(rig, sample.position, worldSamplePos);
   toWorldDir(rig, sample.tangent, worldTangent);
   toWorldDir(rig, sample.normal, worldNormal);
   toWorldDir(rig, sample.binormal, worldBinormal);
 
-  if (rig.mode === "trainFollow") {
-    placeFollow(pos, look, up, sample.inTunnel);
-  } else {
-    placeSpin(rig, pos, look, up);
-  }
+  if (rig.mode === "trainFollow") placeFollow(pos, look, up, sample.inTunnel);
+  else placeSpin(rig, pos, look, up);
+}
+
+function placeCab(loco: Object3D, pos: Vector3, look: Vector3, up: Vector3): void {
+  loco.updateWorldMatrix(true, false);
+  pos.copy(cabEye).applyMatrix4(loco.matrixWorld);
+  look.copy(cabLook).applyMatrix4(loco.matrixWorld);
+  up.copy(cabUp).transformDirection(loco.matrixWorld);
 }
 
 function placeFollow(pos: Vector3, look: Vector3, up: Vector3, inside: boolean): void {
@@ -106,10 +146,11 @@ function placeFollow(pos: Vector3, look: Vector3, up: Vector3, inside: boolean):
   // behind the consist so the view travels through the mouth.
   const back = inside ? 0.4 : 8.5;
   const height = inside ? 2.25 : 2.35;
-  const side = inside ? 0.12 : 1.55;
+  // Outside, stay beyond the oncoming road. Inside, sit on our own rails.
+  const side = inside ? 0.15 : 2.15;
   const lookAhead = inside ? 13 : 11;
-  const lookH = inside ? 0.45 : 1.7;
-  const lookSide = inside ? 0 : -0.35;
+  const lookH = inside ? 0.45 : 1.85;
+  const lookSide = inside ? 0.15 : 0.55;
   pos
     .copy(worldSamplePos)
     .addScaledVector(worldTangent, -back)

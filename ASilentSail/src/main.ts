@@ -17,6 +17,7 @@ import { createPlanetMesh } from "./planet/mesh";
 import { buildAlpineScenery, sceneryTime, updateLife } from "./planet/scenery";
 import { indexPlanetSurface } from "./planet/surface";
 import { createWater, updateWater } from "./planet/water";
+import { cutRailwayShelf } from "./railway/shelf";
 import { buildTrack } from "./railway/track";
 import { createEnvironment } from "./scene/environment";
 import { freezeStaticObjects } from "./render/freezeStatic";
@@ -69,9 +70,12 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   planetWorld.name = "planet-world";
 
   const planet = createPlanetMesh();
+  const train = createTrain(indexPlanetSurface(planet.geometry));
+  // Grade the path against the raw hill, then shave a bench so the outer road
+  // sits on the same bed instead of running up the side slope.
+  cutRailwayShelf(planet.geometry, train.path);
   const surface = indexPlanetSurface(planet.geometry);
-  const train = createTrain(surface);
-  const track = buildTrack(train.path);
+  const track = buildTrack(train.path, surface);
   const scenery = buildAlpineScenery(surface, train.path);
   const water = createWater();
 
@@ -86,7 +90,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
 
   const cameraRig = createCamera(window.innerWidth / window.innerHeight, planetWorld);
   const first = train.update(0);
-  snapCamera(cameraRig, first);
+  snapCamera(cameraRig, first, train.meshes.loco);
 
   const hud = createHud(hudMount, cameraRig);
 
@@ -140,7 +144,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
     const sample = train.update(dt);
     // Keep planet matrix current before camera reads world transforms
     planetWorld.updateMatrixWorld(true);
-    updateCamera(cameraRig, dt, sample);
+    updateCamera(cameraRig, dt, sample, train.meshes.loco);
     updateWater(dt);
     sceneryTime.value += dt;
     updateLife(scenery, clock.elapsedTime);

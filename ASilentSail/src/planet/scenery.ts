@@ -17,15 +17,7 @@ import {
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { PLANET } from "../config";
 import { angularDistance, sphToCart, wrapPhi } from "../math/sphere";
-import {
-  alpineMaps,
-  buttercupMap,
-  edelweissMap,
-  gentianMap,
-  grassTuftMap,
-  mappedStandard,
-  roseMap,
-} from "../render/materials";
+import { alpineMaps, grassTuftMap, mappedStandard } from "../render/materials";
 import { heightOffset, snowFactor } from "./height";
 import { LAKES, SITES } from "./features";
 import type { PlanetSurface } from "./surface";
@@ -181,7 +173,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
     if (nearTrack(railway, theta, phi, 0.07)) return;
     if (nearLake(theta, phi)) return;
     const meshR = surface.radius(theta, phi);
-    const r = (meshR > 1 ? meshR : PLANET.radius + h) + 0.04;
+    const r = (meshR > 1 ? meshR : PLANET.radius + h) - 0.02;
     placeOnSphere(theta, phi, r, scale, 0, yaw);
     const larch = wideTree && hash(yaw * 3.7 + scale) > 0.62 && larchCount < 2200;
     if (larch) larchMesh.setMatrixAt(larchCount++, tmpMat.clone());
@@ -245,8 +237,9 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
       if (h < 2.4 || h > 8.5) continue;
       if (nearTrack(railway, theta, phi, 0.04) || nearLake(theta, phi)) continue;
       if (hash(i * 8.8) < 0.72) continue;
-      const r = PLANET.radius + h + 0.05;
-      placeOnSphere(theta, phi, r, 0.4 + hash(i) * 0.7, 0.12, hash(i * 1.1) * 6);
+      const meshR = surface.radius(theta, phi);
+      const r = (meshR > 1 ? meshR : PLANET.radius + h) - 0.04;
+      placeOnSphere(theta, phi, r, 0.4 + hash(i) * 0.7, 0, hash(i * 1.1) * 6);
       rocks.setMatrixAt(rockCount++, tmpMat.clone());
     }
   }
@@ -272,7 +265,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
   root.add(trunkMesh, tallMesh, wideMesh, larchMesh, snowCaps, rocks);
 }
 
-/** Grass, edelweiss, gentians, and limestone walls along the meadows. */
+/** Grass tufts, dry-stone walls, and pasture fences along the meadows. */
 function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPath): void {
   const grassMat = cardMaterial(grassTuftMap(), "#f2f6e4");
   const grassMatB = cardMaterial(grassTuftMap(), "#e7d48a");
@@ -280,10 +273,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
 
   const grassA = new InstancedMesh(crossedCard(0.55, 0.34), grassMat, 6000);
   const grassB = new InstancedMesh(crossedCard(0.48, 0.46), grassMatB, 2400);
-  const stars = new InstancedMesh(crossedCard(0.42, 0.56), cardMaterial(edelweissMap()), 900);
-  const cups = new InstancedMesh(crossedCard(0.5, 0.48), cardMaterial(buttercupMap()), 800);
-  const roses = new InstancedMesh(crossedCard(0.48, 0.5), cardMaterial(roseMap()), 420);
-  const bells = new InstancedMesh(crossedCard(0.4, 0.58), cardMaterial(gentianMap()), 380);
   const stone = new InstancedMesh(ruggedRock(0.22, 2, 0.58), limestone, 2000);
   const boulder = new InstancedMesh(ruggedRock(0.55, 9, 0.72), mappedStandard(alpineMaps().rock, { roughness: 0.95 }), 800);
   const fenceWood = mappedStandard(alpineMaps().wood, { color: "#6b5340", roughness: 0.86 });
@@ -296,10 +285,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
   const cap = {
     grassA: 0,
     grassB: 0,
-    stars: 0,
-    cups: 0,
-    roses: 0,
-    bells: 0,
     stone: 0,
     boulder: 0,
     post: 0,
@@ -334,41 +319,18 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
         const tall = hash(k + i) > 0.72;
         if (tall && cap.grassB >= 2400) continue;
         if (!tall && cap.grassA >= 6000) continue;
-        const rr = PLANET.radius + heightOffset(at.theta, at.phi) + 0.03;
-        placeOnSphere(at.theta, at.phi, rr, (tall ? 0.95 : 0.72) + hash(k + i) * 0.4, 0, hash(k) * 6);
+        placeOnSphere(
+          at.theta,
+          at.phi,
+          seat(at.theta, at.phi, -0.02),
+          (tall ? 0.95 : 0.72) + hash(k + i) * 0.4,
+          0,
+          hash(k) * 6,
+        );
         if (tall) grassB.setMatrixAt(cap.grassB++, tmpMat.clone());
         else grassA.setMatrixAt(cap.grassA++, tmpMat.clone());
       }
 
-      if (i % 2 === 0 && hash(i * 2 + side) > 0.42 && cap.stars < 880) {
-        const n = 3 + Math.floor(hash(i + side) * 3);
-        for (let k = 0; k < n && cap.stars < 900; k++) {
-          const at = polarOf(
-            origin
-              .clone()
-              .addScaledVector(s.tangent, (hash(i + k) - 0.5) * 0.9)
-              .addScaledVector(s.binormal, (hash(i * 3 + k) - 0.5) * 0.6),
-          );
-          const scale = 1.45 + hash(i + side + k) * 0.55;
-          placeOnSphere(at.theta, at.phi, PLANET.radius + heightOffset(at.theta, at.phi) + 0.03, scale, 0, hash(i + k) * 6);
-          stars.setMatrixAt(cap.stars++, tmpMat.clone());
-        }
-      }
-      if (hash(i * 3 + side) > 0.48 && cap.cups < 800) {
-        const at = polarOf(origin.clone().addScaledVector(s.binormal, side * 0.35));
-        placeOnSphere(at.theta, at.phi, PLANET.radius + heightOffset(at.theta, at.phi) + 0.03, 1.2 + hash(i) * 0.5, 0, hash(side + i) * 4);
-        cups.setMatrixAt(cap.cups++, tmpMat.clone());
-      }
-      if (hash(i * 5 + side) > 0.72 && cap.roses < 420) {
-        const at = polarOf(origin.clone().addScaledVector(s.tangent, 0.4));
-        placeOnSphere(at.theta, at.phi, PLANET.radius + heightOffset(at.theta, at.phi) + 0.03, 1.15 + hash(i + 2) * 0.45, 0, 1);
-        roses.setMatrixAt(cap.roses++, tmpMat.clone());
-      }
-      if (hash(i * 7 + side) > 0.74 && cap.bells < 380) {
-        const at = polarOf(origin.clone().addScaledVector(s.tangent, -0.35));
-        placeOnSphere(at.theta, at.phi, PLANET.radius + heightOffset(at.theta, at.phi) + 0.03, 1.2 + hash(i + 4) * 0.4, 0, 0.2);
-        bells.setMatrixAt(cap.bells++, tmpMat.clone());
-      }
     }
 
     if (i % 11 === 0 && !s.elevated && drift > 0.22 && cap.stone < 1900) {
@@ -376,7 +338,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
       const shoulder = s.position.clone().addScaledVector(s.binormal, side * 1.7);
       const at0 = polarOf(shoulder);
       if (gentleMeadow(at0.theta, at0.phi) && !nearLake(at0.theta, at0.phi)) {
-        const rWall = seat(at0.theta, at0.phi, 0.02);
         const courses = hash(i) > 0.45 ? 3 : 2;
         for (let k = 0; k < 9 && cap.stone < 2000; k++) {
           for (let course = 0; course < courses; course++) {
@@ -389,7 +350,7 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
             placeOnSphere(
               at.theta,
               at.phi,
-              rWall,
+              seat(at.theta, at.phi, -0.04),
               0.75 + hash(i + k + course) * 0.55,
               course * 0.2,
               hash(i + k) * 6.2,
@@ -407,18 +368,25 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
       const at = polarOf(line);
       const h = heightOffset(at.theta, at.phi);
       if (h > 0.2 && h < 3.6 && !nearLake(at.theta, at.phi)) {
-        const r = seat(at.theta, at.phi, 0.02);
         for (let k = 0; k < 4 && cap.post < 640; k++) {
           const p = line.clone().addScaledVector(s.tangent, (k - 1.5) * 0.72);
           const spot = polarOf(p);
-          placeOnSphere(spot.theta, spot.phi, r, 0.85 + hash(i + k) * 0.3, 0, hash(k));
+          placeOnSphere(
+            spot.theta,
+            spot.phi,
+            seat(spot.theta, spot.phi, -0.01),
+            0.85 + hash(i + k) * 0.3,
+            0,
+            hash(k),
+          );
           posts.setMatrixAt(cap.post++, tmpMat.clone());
           if (k < 3 && cap.rail < 620) {
             const mid = line.clone().addScaledVector(s.tangent, (k - 1) * 0.72);
             const midAt = polarOf(mid);
-            placeOnSphere(midAt.theta, midAt.phi, r, 1, 0.22, 0, 1, s.tangent);
+            const railR = seat(midAt.theta, midAt.phi, -0.01);
+            placeOnSphere(midAt.theta, midAt.phi, railR, 1, 0.28, 0, 1, s.tangent);
             rails.setMatrixAt(cap.rail++, tmpMat.clone());
-            placeOnSphere(midAt.theta, midAt.phi, r, 1, 0.42, 0, 1, s.tangent);
+            placeOnSphere(midAt.theta, midAt.phi, railR, 1, 0.48, 0, 1, s.tangent);
             rails.setMatrixAt(cap.rail++, tmpMat.clone());
           }
         }
@@ -436,11 +404,10 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
           for (let k = 0; k < pile && cap.boulder < 800; k++) {
             const q = shoulder.clone().addScaledVector(s.tangent, (hash(i + k) - 0.5) * 1.3);
             const spot = polarOf(q);
-            const hh = heightOffset(spot.theta, spot.phi);
             placeOnSphere(
               spot.theta,
               spot.phi,
-              PLANET.radius + hh + 0.05,
+              seat(spot.theta, spot.phi, -0.02),
               0.32 + hash(i + k) * 0.85,
               0,
               hash(k + i) * 5,
@@ -458,7 +425,7 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
       const at = polarOf(p);
       const h = heightOffset(at.theta, at.phi);
       if (h > 1.4 && h < 7 && !nearLake(at.theta, at.phi)) {
-        placeOnSphere(at.theta, at.phi, seat(at.theta, at.phi, 0.05), 0.6 + hash(i) * 1.4, 0, hash(i) * 5, 0.65);
+        placeOnSphere(at.theta, at.phi, seat(at.theta, at.phi, -0.04), 0.6 + hash(i) * 1.4, 0, hash(i) * 5, 0.65);
         boulder.setMatrixAt(cap.boulder++, tmpMat.clone());
       }
     }
@@ -467,10 +434,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
   const named: Array<[InstancedMesh, number, string]> = [
     [grassA, cap.grassA, "meadow-grass"],
     [grassB, cap.grassB, "meadow-grass-dry"],
-    [stars, cap.stars, "edelweiss"],
-    [cups, cap.cups, "buttercup"],
-    [roses, cap.roses, "alpine-rose"],
-    [bells, cap.bells, "gentian"],
     [stone, cap.stone, "dry-stone-wall"],
     [boulder, cap.boulder, "scree"],
     [posts, cap.post, "pasture-posts"],
@@ -519,10 +482,11 @@ function plantChalets(root: Group, surface: PlanetSurface, railway: RailwayPath)
       const phi = wrapPhi(village.phi + dPhi);
       if (nearTrack(railway, theta, phi, 0.035)) continue;
       const h = heightOffset(theta, phi);
-      const r = surface.radius(theta, phi) || PLANET.radius + h;
+      const meshR = surface.radius(theta, phi);
+      const ground = meshR > 1 ? meshR : PLANET.radius + h;
       const chalet = makeChalet();
       const s = 1.25 + (i % 3) * 0.18;
-      placeOnSphere(theta, phi, r - 0.06, s, 0, ang);
+      placeOnSphere(theta, phi, ground + 0.2 * s - 0.04, s, 0, ang);
       chalet.matrix.copy(tmpMat);
       chalet.matrixAutoUpdate = false;
       cluster.add(chalet);
@@ -547,10 +511,10 @@ function plantValleyHouses(root: Group, surface: PlanetSurface, railway: Railway
     const h = heightOffset(at.theta, at.phi);
     if (h < 0.25 || h > 3.2 || nearLake(at.theta, at.phi, 0.05) || !gentleMeadow(at.theta, at.phi)) continue;
     const meshR = surface.radius(at.theta, at.phi);
-    const r = (meshR > 1 ? meshR : PLANET.radius + h) - 0.06;
+    const ground = meshR > 1 ? meshR : PLANET.radius + h;
     const house = makeChalet();
     const scale = 1.2 + hash(i) * 0.35;
-    placeOnSphere(at.theta, at.phi, r, scale, 0, 0, 1, s.position);
+    placeOnSphere(at.theta, at.phi, ground + 0.2 * scale - 0.04, scale, 0, 0, 1, s.position);
     house.matrix.copy(tmpMat);
     house.matrixAutoUpdate = false;
     cluster.add(house);

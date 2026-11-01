@@ -474,7 +474,7 @@ export function createAlpinePlanetMaterial(): MeshStandardMaterial {
     roughness: 0.92,
     metalness: 0.02,
   });
-  mat.customProgramCacheKey = () => "alpine-triplanar-v18";
+  mat.customProgramCacheKey = () => "alpine-triplanar-v19";
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: maps.grass };
     shader.uniforms.uRock = { value: maps.rock };
@@ -583,12 +583,6 @@ export function createAlpinePlanetMaterial(): MeshStandardMaterial {
         float streakB = pow(abs(sin(vObjPos.z * 20.0 - vObjPos.x * 5.0 + warp * 4.0)), 4.0);
         float blades = max(streak, streakB * 0.85);
         albedo = mix(albedo, meadow * vec3(0.7, 1.25, 0.58), meadowMask * detail * blades * 0.42);
-        float driftN = noise3(vObjPos * 0.2);
-        float bloom = smoothstep(0.7, 0.88, driftN) * meadowMask * detail;
-        float kind = noise3(dir * 4.5);
-        vec3 bloomCol = mix(vec3(0.93, 0.91, 0.74), vec3(0.95, 0.76, 0.16), step(0.48, kind));
-        bloomCol = mix(bloomCol, vec3(0.78, 0.32, 0.42), step(0.8, kind));
-        albedo = mix(albedo, bloomCol, bloom * 0.26);
         float hem = smoothstep(0.1, 0.22, slope) * (1.0 - smoothstep(0.34, 0.52, slope)) * (1.0 - snowW);
         albedo = mix(albedo, albedo * vec3(0.82, 0.98, 0.5), hem * noise3(vObjPos * 2.1) * 0.45);
         float facing = clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0);

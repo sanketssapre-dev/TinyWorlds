@@ -20,22 +20,26 @@ export const TRAIN = {
   carriageLength: 2.5,
   carriageGap: 0.16,
   /** World units per second along arc length. */
-  cruiseSpeed: 0.55,
+  cruiseSpeed: 0.66,
   /** Driving-wheel radius. Wheel spin uses this so the rims match the ground speed. */
   wheelRadius: 0.17,
 } as const;
 
 export const TRACK = {
-  gauge: 0.34,
-  railRadius: 0.05,
+  gauge: 0.16,
+  railRadius: 0.028,
   sleeperSpacing: 0.24,
-  sleeperWidth: 0.52,
-  sleeperLength: 0.1,
+  /** Across the rails. Only a lip past the rail heads. */
+  sleeperWidth: 0.24,
+  sleeperLength: 0.055,
   sleeperHeight: 0.04,
-  ballastWidth: 1.45,
+  /** Shared bed. A lip past the outer ends of both sleeper sets (span is trackSpacing + sleeperWidth). */
+  ballastWidth: 1.82,
+  /** Centerline to centerline. Clears two cabs with a gap between them. */
+  trackSpacing: 1.36,
   bedOffset: 0.12,
   pierSpacing: 2.1,
-  elevatedThreshold: 0.85,
+  elevatedThreshold: 2.2,
   tunnelClearance: 2.4,
 } as const;
 
@@ -66,6 +70,9 @@ export const CAMERA = {
   fov: 58,
   near: 0.2,
   far: 8000,
+  /** Driver's window. A little wider than the chase, and near enough to keep the frame. */
+  cabFov: 66,
+  cabNear: 0.04,
   followDistance: 16,
   followHeight: 7.2,
   lookAhead: 16,

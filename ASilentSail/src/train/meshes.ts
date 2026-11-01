@@ -5,6 +5,7 @@ import {
   Mesh,
   MeshStandardMaterial,
   Object3D,
+  PlaneGeometry,
   PointLight,
   SphereGeometry,
   type Material,
@@ -29,6 +30,11 @@ const glass = new MeshStandardMaterial({
   roughness: 0.12,
   transparent: true,
   opacity: 0.72,
+});
+const cabWood = new MeshStandardMaterial({
+  color: "#2a241c",
+  roughness: 0.86,
+  metalness: 0.08,
 });
 const lampGlass = new MeshStandardMaterial({
   color: "#ffe6b0",
@@ -111,17 +117,31 @@ function buildLocomotive(wheels: Object3D[]): Group {
   // Handrails
   for (const x of [-0.3, 0.3]) cyl(parts, steel, 0.012, 1.15, x, 1.02, 0.35, "z", 6);
 
-  // Cab
-  box(parts, green, 0.86, 0.78, 0.72, 0, 0.86, -0.72);
-  box(parts, roof, 0.94, 0.06, 0.86, 0, 1.28, -0.7);
-  box(parts, cream, 0.82, 0.04, 0.7, 0, 0.5, -0.72);
+  // Cab. Tall enough that the front glass clears the boiler crown.
+  box(parts, green, 0.9, 1.08, 0.78, 0, 1.06, -0.74);
+  box(parts, roof, 0.98, 0.06, 0.92, 0, 1.64, -0.72);
+  box(parts, cream, 0.82, 0.04, 0.7, 0, 0.5, -0.74);
   box(parts, soot, 0.7, 0.35, 0.42, 0, 0.72, -1.22);
   box(parts, roof, 0.74, 0.04, 0.46, 0, 0.92, -1.22);
-  // Cab windows
-  box(parts, glass, 0.02, 0.28, 0.32, -0.44, 0.92, -0.72, false);
-  box(parts, glass, 0.02, 0.28, 0.32, 0.44, 0.92, -0.72, false);
-  box(parts, glass, 0.22, 0.22, 0.02, -0.16, 0.98, -0.35, false);
-  box(parts, glass, 0.22, 0.22, 0.02, 0.16, 0.98, -0.35, false);
+  box(parts, glass, 0.02, 0.32, 0.36, -0.46, 1.22, -0.74, false);
+  box(parts, glass, 0.02, 0.32, 0.36, 0.46, 1.22, -0.74, false);
+  // Faces forward, so the driver looks through the opening and the chase still sees glass.
+  const spectacle = new Mesh(new PlaneGeometry(0.52, 0.36), glass);
+  spectacle.position.set(0, 1.4, -0.34);
+  spectacle.castShadow = false;
+  spectacle.receiveShadow = true;
+  parts.push(spectacle);
+  // Interior panels. The shell draws nothing from the inside, so these
+  // are the window the driver looks through.
+  box(parts, cabWood, 0.82, 0.68, 0.05, 0, 0.86, -0.4, false);
+  box(parts, cabWood, 0.82, 0.08, 0.05, 0, 1.58, -0.4, false);
+  box(parts, cabWood, 0.14, 0.36, 0.05, -0.33, 1.4, -0.4, false);
+  box(parts, cabWood, 0.14, 0.36, 0.05, 0.33, 1.4, -0.4, false);
+  box(parts, cabWood, 0.05, 1.0, 0.62, -0.4, 1.08, -0.78, false);
+  box(parts, cabWood, 0.05, 1.0, 0.62, 0.4, 1.08, -0.78, false);
+  box(parts, cabWood, 0.76, 0.05, 0.62, 0, 1.58, -0.78, false);
+  box(parts, cabWood, 0.76, 1.0, 0.05, 0, 1.08, -1.08, false);
+  box(parts, cabWood, 0.76, 0.05, 0.62, 0, 0.56, -0.78, false);
   box(parts, brass, 0.16, 0.06, 0.012, 0.44, 0.62, -0.5);
   box(parts, brass, 0.16, 0.06, 0.012, -0.44, 0.62, -0.5);
 
