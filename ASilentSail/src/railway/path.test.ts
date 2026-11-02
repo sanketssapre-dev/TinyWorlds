@@ -60,7 +60,7 @@ describe("railway path", () => {
     let maxBurial = 0;
     for (let i = 0; i < n; i++) {
       const s = path.samples[i];
-      if (s.inTunnel || s.elevated) continue;
+      if (s.elevated) continue;
       for (const lateral of [-TRACK.trackSpacing * 0.5, TRACK.trackSpacing * 0.5]) {
         at.copy(s.position).addScaledVector(s.binormal, lateral);
         const len = at.length() || 1;
@@ -86,7 +86,7 @@ describe("railway path", () => {
     let shoulder = 0;
     for (let i = 0; i < n; i++) {
       const s = path.samples[i];
-      if (s.inTunnel || s.elevated) continue;
+      if (s.elevated) continue;
       for (const lateral of [-3.2, 3.2]) {
         at.copy(s.position).addScaledVector(s.binormal, lateral);
         const len = at.length() || 1;

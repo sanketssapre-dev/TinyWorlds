@@ -98,7 +98,7 @@ export function updateCamera(rig: CameraRig, dt: number, sample: PathSample, loc
   dampedPos.lerp(desiredPos, k);
   dampedLook.lerp(desiredLook, k);
   dampedUp.lerp(desiredUp, k).normalize();
-  if (rig.mode !== "cab") avoidPlanet(dampedPos, rig.mode === "trainFollow", sample.inTunnel);
+  if (rig.mode !== "cab") avoidPlanet(dampedPos, rig.mode === "trainFollow");
   apply(rig, locked ? 1 : 1 - Math.exp(-7.5 * dt));
 }
 
@@ -130,7 +130,7 @@ function place(
   toWorldDir(rig, sample.normal, worldNormal);
   toWorldDir(rig, sample.binormal, worldBinormal);
 
-  if (rig.mode === "trainFollow") placeFollow(pos, look, up, sample.inTunnel);
+  if (rig.mode === "trainFollow") placeFollow(pos, look, up);
   else placeSpin(rig, pos, look, up);
 }
 
@@ -141,26 +141,17 @@ function placeCab(loco: Object3D, pos: Vector3, look: Vector3, up: Vector3): voi
   up.copy(cabUp).transformDirection(loco.matrixWorld);
 }
 
-function placeFollow(pos: Vector3, look: Vector3, up: Vector3, inside: boolean): void {
-  // Outside, a meadow chase. Inside a bore, sit on the centerline just
-  // behind the consist so the view travels through the mouth.
-  const back = inside ? 0.4 : CAMERA.followDistance;
-  const height = inside ? 2.25 : CAMERA.followHeight;
-  // Outside, frame the train and landscape together; inside, sit on our own rails.
-  const side = inside ? 0.15 : 3;
-  const lookAhead = inside ? 13 : CAMERA.lookAhead;
-  const lookH = inside ? 0.45 : -6.5;
-  const lookSide = inside ? 0.15 : 0.8;
+function placeFollow(pos: Vector3, look: Vector3, up: Vector3): void {
   pos
     .copy(worldSamplePos)
-    .addScaledVector(worldTangent, -back)
-    .addScaledVector(worldNormal, height)
-    .addScaledVector(worldBinormal, side);
+    .addScaledVector(worldTangent, -CAMERA.followDistance)
+    .addScaledVector(worldNormal, CAMERA.followHeight)
+    .addScaledVector(worldBinormal, 3);
   look
     .copy(worldSamplePos)
-    .addScaledVector(worldTangent, lookAhead)
-    .addScaledVector(worldNormal, lookH)
-    .addScaledVector(worldBinormal, lookSide);
+    .addScaledVector(worldTangent, CAMERA.lookAhead)
+    .addScaledVector(worldNormal, -6.5)
+    .addScaledVector(worldBinormal, 0.8);
   up.copy(worldNormal);
 }
 
@@ -190,14 +181,14 @@ function apply(rig: CameraRig, slerp: number): void {
   rig.camera.quaternion.copy(prevQuat).slerp(targetQuat, slerp);
 }
 
-function avoidPlanet(pos: Vector3, follow: boolean, insideTunnel: boolean): void {
+function avoidPlanet(pos: Vector3, follow: boolean): void {
   radial.copy(pos);
   const r = radial.length() || 1;
   const theta = Math.acos(clamp(radial.y / r, -1, 1));
   const phi = Math.atan2(radial.z, radial.x);
   // Outside the bore, stay well clear of the crust so the camera never
-  // slips inside the shell. Inside, only correct a true intersection.
-  const clearance = insideTunnel ? 0.4 : follow ? 3.2 : 3.5;
+  // slips inside the shell.
+  const clearance = follow ? 3.2 : 3.5;
   let minR = PLANET.radius + heightOffset(theta, phi) + clearance;
   if (!follow) minR = Math.max(minR, PLANET.radius + 6);
   if (r < minR) pos.setLength(minR);

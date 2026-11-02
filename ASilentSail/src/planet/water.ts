@@ -28,7 +28,7 @@ export function createWater(): Group {
   for (const lake of LAKES) {
     const floor = heightOffset(lake.site.theta, lake.site.phi);
     const surfaceH = floor + 0.22 + WATER.lakeLevelBias;
-    const geo = lakeCap(lake, PLANET.radius + surfaceH);
+    const geo = lakeCap(lake, PLANET.radius + surfaceH, surfaceH);
     const mat = new ShaderMaterial({
       transparent: true,
       side: DoubleSide,
@@ -40,8 +40,11 @@ export function createWater(): Group {
         uShallows: { value: new Color("#b0e5d7") },
       },
       vertexShader: `
+        attribute float aDepth;
+        varying float vDepth;
         varying vec2 vUv;
         void main() {
+          vDepth = aDepth;
           vUv = uv;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
@@ -51,6 +54,7 @@ export function createWater(): Group {
         uniform vec3 uColor;
         uniform vec3 uDeep;
         uniform vec3 uShallows;
+        varying float vDepth;
         varying vec2 vUv;
         void main() {
           vec2 p = vUv - 0.5;
@@ -58,7 +62,8 @@ export function createWater(): Group {
           float wave = sin((p.x * 18.0 + uTime * 1.2)) * 0.04
                      + sin((p.y * 14.0 - uTime * 0.9)) * 0.03;
           float edge = smoothstep(0.78, 0.99, r);
-          float alpha = (1.0 - smoothstep(0.91, 1.0, r)) * 0.94;
+          float depth = smoothstep(0.0, 0.85, vDepth);
+          float alpha = mix(0.14, 0.78, depth) * (1.0 - smoothstep(0.91, 1.0, r));
           vec3 col = mix(uDeep, uColor, 0.35 + edge * 0.42 + wave);
           col = mix(col, uShallows, edge * 0.78);
           gl_FragColor = vec4(col, alpha);
@@ -144,17 +149,23 @@ function createWaterfall(): Group {
 }
 
 /** Spherical cap so a wide lake follows the planet instead of sagging at the rim. */
-function lakeCap(lake: (typeof LAKES)[number], radial: number): BufferGeometry {
+function lakeCap(
+  lake: (typeof LAKES)[number],
+  radial: number,
+  waterLevel: number,
+): BufferGeometry {
   const { theta, phi } = lake.site;
   const angular = lake.radius / PLANET.radius;
   const rings = 6;
   const segs = 36;
   const positions: number[] = [];
   const uvs: number[] = [];
+  const depths: number[] = [];
   const indices: number[] = [];
   const center = sphToCart(radial, theta, phi);
   positions.push(center.x, center.y, center.z);
   uvs.push(0.5, 0.5);
+  depths.push(depthAt(lake, theta, phi, waterLevel));
   const ringStart: number[] = [0];
   const sinT = Math.max(0.28, Math.sin(theta));
   for (let ring = 1; ring <= rings; ring++) {
@@ -171,6 +182,14 @@ function lakeCap(lake: (typeof LAKES)[number], radial: number): BufferGeometry {
       );
       positions.push(p.x, p.y, p.z);
       uvs.push(0.5 + Math.cos(t) * uvR, 0.5 + Math.sin(t) * uvR);
+      depths.push(
+        depthAt(
+          lake,
+          theta + Math.cos(t) * a * shore,
+          wrapPhi(phi + (Math.sin(t) * a * shore) / sinT),
+          waterLevel,
+        ),
+      );
     }
   }
   const inner = ringStart[1];
@@ -188,9 +207,19 @@ function lakeCap(lake: (typeof LAKES)[number], radial: number): BufferGeometry {
   const geo = new BufferGeometry();
   geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geo.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  geo.setAttribute("aDepth", new Float32BufferAttribute(depths, 1));
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
+}
+
+function depthAt(
+  lake: (typeof LAKES)[number],
+  theta: number,
+  phi: number,
+  waterLevel: number,
+): number {
+  return Math.max(0, Math.min(1, (waterLevel - heightOffset(theta, phi)) / lake.depth));
 }
 
 export function updateWater(dt: number): void {

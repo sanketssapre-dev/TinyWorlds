@@ -2,7 +2,7 @@
 
 This folder is a staged app. It is in the repository and opens from the Vite dev server at `/TinyWorlds/ASilentSail/`. GitHub Pages publishes AnExplore only. `vite.config.ts` builds the root `index.html` and leaves this app out of `dist`.
 
-The scene is the Swiss Alps railway: a 144-unit planet with snowy massifs, summer valleys, forest belts, clustered chalets, two roads, and three carriages on each autonomous consist. Lake crossings use stone viaducts, and tunnel roofs continue the meadow. The camera cycles Train Follow, Free Planet Spin, and the driver’s view. “Tiny Worlds” is at the bottom left. The camera pin is at the bottom right and names the next mode.
+The scene is the Swiss Alps railway: a 144-unit planet with snowy massifs, summer valleys, forest belts, clustered chalets, broad twin railway lines with wide ties, and three carriages on each autonomous consist. Trackside rocks must remain clear of both lines. Lake crossings use stone viaducts; lake transparency varies with depth and the dark sky retains visible stars. There are no tunnels or overhead tunnel covers. The camera cycles Train Follow, Free Planet Spin, and the driver’s view. “Tiny Worlds” is at the bottom left. The camera pin is at the bottom right and names the next mode.
 
 ## Check locally
 

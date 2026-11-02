@@ -46,6 +46,47 @@ function massif(
   );
 }
 
+const RIDGE_PEAKS = [
+  [0.78, 0.12, 0.09, 8.5],
+  [1.48, 0.18, 0.08, 7.5],
+  [0.92, 0.2, 0.08, 9],
+  [1.34, 0.22, 0.07, 7.5],
+  [1.02, 0.2, 0.11, 8],
+] as const;
+
+const VALLEY_MASSIFS = [
+  [0.75, 0.2, 0.13, 14],
+  [1.65, 0.22, 0.12, 12.5],
+  [0.75, 0.78, 0.12, 13],
+  [1.65, 0.82, 0.14, 14],
+  [0.75, 1.48, 0.14, 15],
+  [1.65, 1.54, 0.12, 13],
+  [0.75, 2.45, 0.14, 13],
+  [1.65, 2.5, 0.13, 14],
+  [0.75, 3.55, 0.12, 14],
+  [1.65, 3.62, 0.14, 13],
+  [0.75, 4.65, 0.13, 14],
+  [1.65, 4.72, 0.13, 12.5],
+  [0.75, 5.55, 0.14, 13],
+  [1.65, 5.62, 0.12, 14],
+] as const;
+
+const SECONDARY_MASSIFS = [
+  [0.7, 0.75, 0.22, 2.8, 0.14, 6.7],
+  [1.68, 0.85, 0.2, 2.5, 0.13, 5.9],
+  [0.68, 1.45, 0.21, 2.7, 0.13, 6.2],
+  [1.7, 1.5, 0.19, 2.4, 0.12, 5.3],
+] as const;
+
+export const MOUNTAIN_SUMMIT_CENTERS = [
+  ...Object.values(SITES)
+    .filter((site) => site.kind === "peak")
+    .map(({ theta, phi }) => ({ theta, phi })),
+  ...RIDGE_PEAKS.map(([theta, phi]) => ({ theta, phi })),
+  ...VALLEY_MASSIFS.map(([theta, phi]) => ({ theta, phi })),
+  ...SECONDARY_MASSIFS.map(([theta, phi]) => ({ theta, phi })),
+];
+
 /** Alpine elevation on the sphere — peaks, valleys, lakes, meadows. */
 export function heightOffset(theta: number, phi: number): number {
   const p = sphToCart(1, theta, phi);
@@ -78,39 +119,16 @@ export function heightOffset(theta: number, phi: number): number {
 
   // Peaks stand off the rails. Amplitudes stay under the height cap so the
   // ridge noise is not sliced into a plateau.
-  h += jagged(theta, phi, 0.78, 0.12, 0.09, 8.5);
-  h += jagged(theta, phi, 1.48, 0.18, 0.08, 7.5);
-  h += jagged(theta, phi, 0.92, 0.2, 0.08, 9);
-  h += jagged(theta, phi, 1.34, 0.22, 0.07, 7.5);
-  h += jagged(theta, phi, 1.02, 0.2, 0.11, 8);
-
-  const valleyMassifs: Array<[number, number, number, number]> = [
-    [0.75, 0.2, 0.13, 14],
-    [1.65, 0.22, 0.12, 12.5],
-    [0.75, 0.78, 0.12, 13],
-    [1.65, 0.82, 0.14, 14],
-    [0.75, 1.48, 0.14, 15],
-    [1.65, 1.54, 0.12, 13],
-    [0.75, 2.45, 0.14, 13],
-    [1.65, 2.5, 0.13, 14],
-    [0.75, 3.55, 0.12, 14],
-    [1.65, 3.62, 0.14, 13],
-    [0.75, 4.65, 0.13, 14],
-    [1.65, 4.72, 0.13, 12.5],
-    [0.75, 5.55, 0.14, 13],
-    [1.65, 5.62, 0.12, 14],
-  ];
-  for (const [peakTheta, peakPhi, sigma, amplitude] of valleyMassifs) {
+  for (const [peakTheta, peakPhi, sigma, amplitude] of RIDGE_PEAKS) {
+    h += jagged(theta, phi, peakTheta, peakPhi, sigma, amplitude);
+  }
+  for (const [peakTheta, peakPhi, sigma, amplitude] of VALLEY_MASSIFS) {
     h += massif(theta, phi, peakTheta, peakPhi, sigma, amplitude);
   }
-  h += blob(theta, phi, 0.7, 0.75, 0.22, 2.8);
-  h += jagged(theta, phi, 0.7, 0.75, 0.14, 6.7);
-  h += blob(theta, phi, 1.68, 0.85, 0.2, 2.5);
-  h += jagged(theta, phi, 1.68, 0.85, 0.13, 5.9);
-  h += blob(theta, phi, 0.68, 1.45, 0.21, 2.7);
-  h += jagged(theta, phi, 0.68, 1.45, 0.13, 6.2);
-  h += blob(theta, phi, 1.7, 1.5, 0.19, 2.4);
-  h += jagged(theta, phi, 1.7, 1.5, 0.12, 5.3);
+  for (const [peakTheta, peakPhi, blobSigma, blobAmplitude, ridgeSigma, ridgeAmplitude] of SECONDARY_MASSIFS) {
+    h += blob(theta, phi, peakTheta, peakPhi, blobSigma, blobAmplitude);
+    h += jagged(theta, phi, peakTheta, peakPhi, ridgeSigma, ridgeAmplitude);
+  }
 
   // Narrow grass floor under the circuit so the train sits in a valley.
   const route: Array<[number, number]> = [
