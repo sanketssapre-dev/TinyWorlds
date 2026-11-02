@@ -43,7 +43,6 @@ const axisZ = new Vector3();
 const refAxis = new Vector3();
 const CONIFER_CROWN_FRACTION = 0.7;
 const CONIFER_BRANCH_DETAIL = 4;
-const TRACKSIDE_ROCK_OFFSET = TRACK.trackSpacing * 0.5 + TRACK.sleeperWidth * 0.5 + 1.4;
 export const MAX_ALPINE_TREES = 21_000;
 const GROVE_COUNT = 1_080;
 export const TREE_TRACK_CLEARANCE = 0.085;
@@ -384,25 +383,6 @@ function crossedCard(width: number, height: number): BufferGeometry {
   return mergeParts([a, b, c]);
 }
 
-function ruggedRock(radius: number, seed: number, flat: number): BufferGeometry {
-  const geo = new IcosahedronGeometry(radius, 1);
-  const pos = geo.getAttribute("position");
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    const len = Math.hypot(x, y, z) || 1;
-    const vertexSeed =
-      Math.round((x / len + 1) * 100) * 1.7 +
-      Math.round((y / len + 1) * 100) * 3.1 +
-      Math.round((z / len + 1) * 100) * 7.3;
-    const n = 0.9 + hash(seed + vertexSeed) * 0.2;
-    pos.setXYZ(i, (x / len) * radius * n, (y / len) * radius * n * flat, (z / len) * radius * n);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-
 function cardMaterial(map: Texture, color = "#ffffff"): MeshStandardMaterial {
   const mat = new MeshStandardMaterial({
     map,
@@ -454,13 +434,10 @@ function plantPines(
     roughness: 0.96,
   });
   const snowMat = mappedStandard(maps.snow, { color: "#e7eef3", roughness: 0.78 });
-  const rockMat = mappedStandard(maps.alpineRock, { color: "#c5c8c3", roughness: 0.96 });
-
   const tall = coniferCrown(0.82, 1, 36 * CONIFER_BRANCH_DETAIL, "#315b3b", "#7d9c60");
   const wide = coniferCrown(1.02, 8, 40 * CONIFER_BRANCH_DETAIL, "#3c6846", "#90ad69");
   const larchGeo = coniferCrown(0.76, 21, 26 * CONIFER_BRANCH_DETAIL, "#748246", "#c1b86d");
   const snowGeo = snowCrown();
-  const rockGeo = ruggedRock(0.48, 4, 0.7);
 
   const treeBuckets = Array.from({ length: 8 }, () => ({
     tall: [] as Matrix4[],
@@ -470,16 +447,12 @@ function plantPines(
     snow: [] as Matrix4[],
   }));
   const trunkGeo = trunkGeometry();
-  const rocks = new InstancedMesh(rockGeo, rockMat, 420);
-  rocks.castShadow = true;
-  rocks.receiveShadow = true;
 
   let tallCount = 0;
   let wideCount = 0;
   let larchCount = 0;
   let trunkCount = 0;
   let snowCount = 0;
-  let rockCount = 0;
   let treeCount = 0;
 
   const placeTree = (theta: number, phi: number, scale: number, yaw: number, wideTree: boolean) => {
@@ -562,21 +535,6 @@ function plantPines(
     }
   }
 
-  if (rockCount < 420) {
-    for (let i = 0; i < 900 && rockCount < 420; i++) {
-      const theta = hash(i * 2.2) * Math.PI;
-      const phi = hash(i * 3.7) * Math.PI * 2;
-      const h = heightOffset(theta, phi);
-      if (h < 4.0 || h > 16.5) continue;
-      if (isNearTrack(theta, phi, 0.04) || nearLake(theta, phi)) continue;
-      if (hash(i * 8.8) < 0.72) continue;
-      const meshR = surface.radius(theta, phi);
-      const r = (meshR > 1 ? meshR : PLANET.radius + h) - 0.04;
-      placeOnSphere(theta, phi, r, 0.4 + hash(i) * 0.7, 0, hash(i * 1.1) * 6);
-      rocks.setMatrixAt(rockCount++, tmpMat.clone());
-    }
-  }
-
   for (const bucket of treeBuckets) {
     addInstances(tall, foliage, bucket.tall, "spruce-tall");
     addInstances(wide, foliageB, bucket.wide, "spruce-wide");
@@ -584,11 +542,6 @@ function plantPines(
     addInstances(trunkGeo, barkMat, bucket.trunks, "tree-trunks");
     addInstances(snowGeo, snowMat, bucket.snow, "pine-snow");
   }
-  rocks.count = rockCount;
-  rocks.instanceMatrix.needsUpdate = true;
-  rocks.name = "alpine-rocks";
-  root.add(rocks);
-
   function addInstances(
     geometry: BufferGeometry,
     material: MeshStandardMaterial,
@@ -605,20 +558,13 @@ function plantPines(
   }
 }
 
-/** Grass tufts, dry-stone walls, and pasture fences along the meadows. */
+/** Meadow grass and pasture fences along the railway. */
 function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPath): void {
   const grassMat = cardMaterial(grassTuftMap(), "#f2f6e4");
   const grassMatB = cardMaterial(grassTuftMap(), "#e7d48a");
-  const limestone = mappedStandard(alpineMaps().stone, { color: "#c9c3b8", roughness: 0.94 });
 
   const grassA = new InstancedMesh(crossedCard(0.55, 0.34), grassMat, 6000);
   const grassB = new InstancedMesh(crossedCard(0.48, 0.46), grassMatB, 2400);
-  const stone = new InstancedMesh(ruggedRock(0.22, 2, 0.58), limestone, 2000);
-  const boulder = new InstancedMesh(
-    ruggedRock(0.55, 9, 0.72),
-    mappedStandard(alpineMaps().alpineRock, { color: "#c5c8c3", roughness: 0.96 }),
-    800,
-  );
   const fenceWood = mappedStandard(alpineMaps().wood, { color: "#6b5340", roughness: 0.86 });
   const postGeo = new CylinderGeometry(0.035, 0.05, 0.62, 5);
   postGeo.translate(0, 0.31, 0);
@@ -629,8 +575,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
   const cap = {
     grassA: 0,
     grassB: 0,
-    stone: 0,
-    boulder: 0,
     post: 0,
     rail: 0,
   };
@@ -676,38 +620,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
 
     }
 
-    if (i % 11 === 0 && !s.elevated && drift > 0.22 && cap.stone < 1900) {
-      const side = hash(i * 5.1) > 0.5 ? 1 : -1;
-      const shoulder = s.position.clone().addScaledVector(s.binormal, side * TRACKSIDE_ROCK_OFFSET);
-      const at0 = polarOf(shoulder);
-      if (gentleMeadow(at0.theta, at0.phi) && !nearLake(at0.theta, at0.phi)) {
-        const courses = hash(i) > 0.45 ? 3 : 2;
-        for (let k = 0; k < 9 && cap.stone < 2000; k++) {
-          for (let course = 0; course < courses; course++) {
-            if (cap.stone >= 2000) break;
-            const p = s.position
-              .clone()
-              .addScaledVector(
-                s.binormal,
-                side * (TRACKSIDE_ROCK_OFFSET + hash(i + k) * 0.12 + course * 0.02),
-              )
-              .addScaledVector(s.tangent, (k - 4) * 0.3);
-            const at = polarOf(p);
-            placeOnSphere(
-              at.theta,
-              at.phi,
-              seat(at.theta, at.phi, -0.04),
-              0.75 + hash(i + k + course) * 0.55,
-              course * 0.2,
-              hash(i + k) * 6.2,
-              0.72 + hash(k + course) * 0.4,
-            );
-            stone.setMatrixAt(cap.stone++, tmpMat.clone());
-          }
-        }
-      }
-    }
-
     if (i % 8 === 0 && !s.elevated && drift > 0.35 && cap.post < 600) {
       const side = hash(i * 2.3) > 0.5 ? 1 : -1;
       const line = s.position
@@ -744,53 +656,11 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
       }
     }
 
-    if (i % 4 === 0 && cap.boulder < 760) {
-      const bank = hash(i * 2.2) > 0.5 ? 1 : -1;
-      const shoulder = s.position
-        .clone()
-        .addScaledVector(s.binormal, bank * (TRACKSIDE_ROCK_OFFSET + hash(i) * 0.9));
-      const bankAt = polarOf(shoulder);
-      if (!nearLake(bankAt.theta, bankAt.phi) && !gentleMeadow(bankAt.theta, bankAt.phi)) {
-        const bankH = heightOffset(bankAt.theta, bankAt.phi);
-        if (bankH > 0.3 && bankH < 8.2) {
-          const pile = 2 + Math.floor(hash(i + 4) * 2);
-          for (let k = 0; k < pile && cap.boulder < 800; k++) {
-            const q = shoulder.clone().addScaledVector(s.tangent, (hash(i + k) - 0.5) * 1.3);
-            const spot = polarOf(q);
-            placeOnSphere(
-              spot.theta,
-              spot.phi,
-              seat(spot.theta, spot.phi, -0.02),
-              0.32 + hash(i + k) * 0.85,
-              0,
-              hash(k + i) * 5,
-              0.45 + hash(k) * 0.35,
-            );
-            boulder.setMatrixAt(cap.boulder++, tmpMat.clone());
-          }
-        }
-      }
-    }
-
-    if (i % 6 === 0 && cap.boulder < 800 && hash(i * 1.4) > 0.35) {
-      const side = hash(i) > 0.5 ? 1 : -1;
-      const p = s.position
-        .clone()
-        .addScaledVector(s.binormal, side * (TRACKSIDE_ROCK_OFFSET + 0.8 + hash(i) * 2.2));
-      const at = polarOf(p);
-      const h = heightOffset(at.theta, at.phi);
-      if (h > 1.4 && h < 7 && !nearLake(at.theta, at.phi)) {
-        placeOnSphere(at.theta, at.phi, seat(at.theta, at.phi, -0.04), 0.6 + hash(i) * 1.4, 0, hash(i) * 5, 0.65);
-        boulder.setMatrixAt(cap.boulder++, tmpMat.clone());
-      }
-    }
   }
 
   const named: Array<[InstancedMesh, number, string]> = [
     [grassA, cap.grassA, "meadow-grass"],
     [grassB, cap.grassB, "meadow-grass-dry"],
-    [stone, cap.stone, "dry-stone-wall"],
-    [boulder, cap.boulder, "scree"],
     [posts, cap.post, "pasture-posts"],
     [rails, cap.rail, "pasture-rails"],
   ];
@@ -798,10 +668,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
     mesh.count = count;
     mesh.name = name;
     mesh.instanceMatrix.needsUpdate = true;
-    if (name === "scree" || name === "dry-stone-wall") {
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-    }
     root.add(mesh);
   }
 }
