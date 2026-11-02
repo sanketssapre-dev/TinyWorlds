@@ -23,7 +23,7 @@ export function cutRailwayShelf(geo: BufferGeometry, path: RailwayPath): void {
   const n = samples.length;
   const open = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    if (!samples[i].inTunnel && !samples[i].elevated) open[i] = 1;
+    if (!samples[i].elevated) open[i] = 1;
   }
 
   const PHI_BINS = 240;

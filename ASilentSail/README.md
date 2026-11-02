@@ -1,6 +1,6 @@
 # Tiny Worlds — Swiss Alps railway
 
-Staged app in `ASilentSail/`. The folder name remains from the old yacht world. The scene is a closed mountain railway on a spherical Alpine planet: a forest-green steam locomotive, three carriages, a second train on a parallel road, stone viaducts over the lakes the line crosses, tunnels whose roofs continue the meadow, clustered chalets and forests, layered snowy massifs, and a cratered Moon. Its clear summer daylight is framed as a miniature landscape, not a bare planet in space.
+Staged app in `ASilentSail/`. The folder name remains from the old yacht world. The scene is a closed mountain railway on a spherical Alpine planet: a forest-green steam locomotive, three carriages, a second train on a broad parallel track, stone viaducts over the lakes the line crosses, clustered chalets and forests, layered snowy massifs, and a cratered Moon. Translucent lake water and a dark, starry sky frame the miniature landscape.
 
 GitHub Pages publishes **AnExplore** from the repo root. This railway is in the repository and runs from the Vite dev server. The production build does not emit it.
 
@@ -39,8 +39,8 @@ The words “Tiny Worlds” sit at the bottom left. The pin’s accessible name 
 
 - Planet radius **144**. Relief runs from about **-2** to **22**.
 - One Moon, radius **39**, about **4.5** planet radii out. The Moon and sun stay outside the rotating planet group.
-- Two roads, **1.36** apart. Our train takes the left road. The oncoming train takes the right and travels the other way. Each consist is one locomotive and three carriages.
-- The railway follows a slope-limited grade; open-ground terrain is cut or raised beneath both roads so sleepers meet the meadow instead of floating or sinking. Deeper crossings remain stone viaducts. Tunnel roofs are the surrounding meadow, with rock at the stone mouth.
+- Two broad railway lines, **4.8** apart, with wide ties. Our train takes the left line. The oncoming train takes the right and travels the other way. Each consist is one locomotive and three carriages.
+- The railway follows a slope-limited grade; open-ground terrain is cut or raised beneath both roads so sleepers meet the meadow instead of floating or sinking. Deeper crossings remain stone viaducts.
 
 ## Layout
 
@@ -48,7 +48,7 @@ The words “Tiny Worlds” sit at the bottom left. The pin’s accessible name 
 | --- | --- |
 | `src/main.ts` | Scene wiring, planet group, input |
 | `src/planet/` | Terrain, mesh, scenery, lakes |
-| `src/railway/` | Closed path, formation shelf, track, viaducts, tunnels |
+| `src/railway/` | Closed path, formation shelf, broad twin track, viaducts |
 | `src/train/` | Locomotive, carriages, steam, second consist |
 | `src/camera/` | Train Follow, Free Planet Spin, driver’s view |
 | `src/ui/` | Title and camera pin |

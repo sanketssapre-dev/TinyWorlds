@@ -26,21 +26,18 @@ export const TRAIN = {
 } as const;
 
 export const TRACK = {
-  gauge: 0.16,
+  gauge: 0.42,
   railRadius: 0.028,
   sleeperSpacing: 0.24,
-  /** Across the rails. Only a lip past the rail heads. */
-  sleeperWidth: 0.24,
-  sleeperLength: 0.055,
+  /** Broad ties carry the rails and read clearly at miniature scale. */
+  sleeperWidth: 1,
+  sleeperLength: 0.16,
   sleeperHeight: 0.04,
-  /** Shared bed. A lip past the outer ends of both sleeper sets (span is trackSpacing + sleeperWidth). */
-  ballastWidth: 1.82,
-  /** Centerline to centerline. Clears two cabs with a gap between them. */
-  trackSpacing: 1.36,
+  /** Centerline-to-centerline spacing between the autonomous railway lines. */
+  trackSpacing: 4.8,
   bedOffset: 0.12,
   pierSpacing: 2.1,
   elevatedThreshold: 4.5,
-  tunnelClearance: 2.4,
 } as const;
 
 export const SUN = {
@@ -90,9 +87,3 @@ export const WATER = {
   /** Alpine lake surface height above mean sphere (local basin floor sits below). */
   lakeLevelBias: 0.15,
 } as const;
-
-export const DEBUG = {
-  enabled:
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("pathdebug"),
-};

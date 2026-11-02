@@ -21,7 +21,6 @@ export type TrainConsist = {
 const sampleScratch = scratchSample();
 const noseScratch = scratchSample();
 const tailScratch = scratchSample();
-const cameraScratch = scratchSample();
 const basis = new Matrix4();
 const forward = new Vector3();
 const side = new Vector3();
@@ -106,16 +105,6 @@ export function createTrain(surface: PlanetSurface): TrainConsist {
     steam.update(dt, true);
     oncomingSteam.update(dt, true);
     const loco = getSampleAt(path, distance, sampleScratch);
-    // The bore follows the curve. A long tangent offset leaves the tube,
-    // so once the chase is inside, anchor it on the rails behind the consist.
-    const gate = getSampleAt(path, distance - 8, cameraScratch);
-    const behind = getSampleAt(path, distance - 12.2, noseScratch);
-    if (gate.inTunnel || behind.inTunnel) {
-      const cam = getSampleAt(path, distance - 11.6, sampleScratch);
-      cam.inTunnel = true;
-      return onOurTrack(cam);
-    }
-    loco.inTunnel = false;
     return onOurTrack(loco);
   };
 

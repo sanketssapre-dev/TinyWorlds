@@ -13,7 +13,6 @@ export type SphericalSite = {
     | "lake"
     | "pond"
     | "cliff"
-    | "tunnel"
     | "meadow"
     | "waterfall";
 };
@@ -36,8 +35,6 @@ export const SITES: Record<string, SphericalSite> = {
   lakeLucerne: { id: "lakeLucerne", theta: 0.48, phi: 2.85, kind: "lake" },
   lakeMaggiora: { id: "lakeMaggiora", theta: 2.42, phi: 4.55, kind: "lake" },
   cliffFace: { id: "cliffFace", theta: 1.05, phi: 3.9, kind: "cliff" },
-  tunnelA: { id: "tunnelA", theta: 1.02, phi: 3.95, kind: "tunnel" },
-  tunnelB: { id: "tunnelB", theta: 1.35, phi: 1.7, kind: "tunnel" },
   meadowA: { id: "meadowA", theta: 1.32, phi: 0.1, kind: "meadow" },
   waterfall: { id: "waterfall", theta: 1.15, phi: 2.2, kind: "waterfall" },
 };

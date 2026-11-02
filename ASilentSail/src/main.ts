@@ -75,7 +75,7 @@ function start(canvasEl: HTMLCanvasElement, hudMount: HTMLElement): void {
   // sits on the same bed instead of running up the side slope.
   cutRailwayShelf(planet.geometry, train.path);
   const surface = indexPlanetSurface(planet.geometry);
-  const track = buildTrack(train.path, surface);
+  const track = buildTrack(train.path);
   const scenery = buildAlpineScenery(surface, train.path);
   const water = createWater();
 

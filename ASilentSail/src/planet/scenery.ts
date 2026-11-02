@@ -22,10 +22,10 @@ import {
   RepeatWrapping,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { PLANET } from "../config";
+import { PLANET, TRACK } from "../config";
 import { angularDistance, sphToCart, wrapPhi } from "../math/sphere";
 import { alpineMaps, grassTuftMap, mappedStandard } from "../render/materials";
-import { heightOffset, snowFactor } from "./height";
+import { heightOffset, MOUNTAIN_SUMMIT_CENTERS, snowFactor } from "./height";
 import { LAKES, SITES } from "./features";
 import type { PlanetSurface } from "./surface";
 import type { RailwayPath } from "../railway/path";
@@ -43,8 +43,15 @@ const axisZ = new Vector3();
 const refAxis = new Vector3();
 const CONIFER_CROWN_FRACTION = 0.7;
 const CONIFER_BRANCH_DETAIL = 4;
+const TRACKSIDE_ROCK_OFFSET = TRACK.trackSpacing * 0.5 + TRACK.sleeperWidth * 0.5 + 1.4;
+export const MAX_ALPINE_TREES = 21_000;
+const GROVE_COUNT = 1_080;
+export const TREE_TRACK_CLEARANCE = 0.085;
+const TREE_SUMMIT_CLEARANCE = 0.055;
 let bark: CanvasTexture | undefined;
 let coniferNeedles: CanvasTexture | undefined;
+
+type TrackProximity = (theta: number, phi: number, reach: number) => boolean;
 
 export const sceneryTime = { value: 0 };
 
@@ -55,9 +62,10 @@ export function buildAlpineScenery(
   const root = new Group();
   root.name = "alpine-scenery";
 
-  plantPines(root, surface, railway);
+  const isNearTrack = createTrackProximity(railway);
+  plantPines(root, surface, railway, isNearTrack);
   plantTrackside(root, surface, railway);
-  plantChalets(root, surface, railway);
+  plantChalets(root, surface, railway, isNearTrack);
   return root;
 }
 
@@ -409,7 +417,12 @@ function cardMaterial(map: Texture, color = "#ffffff"): MeshStandardMaterial {
   return mat;
 }
 
-function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): void {
+function plantPines(
+  root: Group,
+  surface: PlanetSurface,
+  railway: RailwayPath,
+  isNearTrack: TrackProximity,
+): void {
   const maps = alpineMaps();
   const foliage = new MeshStandardMaterial({
     map: coniferNeedleAtlas(),
@@ -449,7 +462,6 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
   const snowGeo = snowCrown();
   const rockGeo = ruggedRock(0.48, 4, 0.7);
 
-  const maxTrees = 7000;
   const treeBuckets = Array.from({ length: 8 }, () => ({
     tall: [] as Matrix4[],
     wide: [] as Matrix4[],
@@ -468,14 +480,16 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
   let trunkCount = 0;
   let snowCount = 0;
   let rockCount = 0;
+  let treeCount = 0;
 
   const placeTree = (theta: number, phi: number, scale: number, yaw: number, wideTree: boolean) => {
-    if (tallCount + wideCount + larchCount >= maxTrees) return;
+    if (treeCount >= MAX_ALPINE_TREES) return;
     if (theta < 0.04 || theta > Math.PI - 0.04) return;
+    if (isNearTrack(theta, phi, TREE_TRACK_CLEARANCE)) return;
+    if (nearMountainSummit(theta, phi)) return;
+    if (nearLake(theta, phi)) return;
     const h = heightOffset(theta, phi);
     if (h < -0.55 || h > 14.8) return;
-    if (nearTrack(railway, theta, phi, 0.07)) return;
-    if (nearLake(theta, phi)) return;
     const meshR = surface.radius(theta, phi);
     const r = (meshR > 1 ? meshR : PLANET.radius + h) - 0.02;
     placeOnSphere(theta, phi, r, scale, 0, yaw);
@@ -494,11 +508,12 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
       bucket.tall.push(tmpMat.clone());
       tallCount++;
     }
-    if (trunkCount < maxTrees) {
+    treeCount++;
+    if (trunkCount < MAX_ALPINE_TREES) {
       bucket.trunks.push(tmpMat.clone());
       trunkCount++;
     }
-    if (snowFactor(theta, h) > 0.55 && snowCount < maxTrees && scale > 1.3) {
+    if (snowFactor(theta, h) > 0.55 && snowCount < MAX_ALPINE_TREES && scale > 1.3) {
       placeOnSphere(theta, phi, r, scale, 0, yaw);
       bucket.snow.push(tmpMat.clone());
       snowCount++;
@@ -508,7 +523,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
   // Valley banks first, as irregular stands rather than a row of evenly
   // spaced trees. The rest of the planet is groves: dense in the middle,
   // empty meadow between them.
-  for (let i = 0; i < railway.samples.length && tallCount + wideCount < maxTrees; i += 4) {
+  for (let i = 0; i < railway.samples.length && treeCount < MAX_ALPINE_TREES; i += 4) {
     const s = railway.samples[i];
     const side = (hash(i * 1.3) > 0.5 ? 1 : -1) * (6 + hash(i * 2.1) * 22);
     const p = s.position.clone().addScaledVector(s.binormal, side);
@@ -517,7 +532,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
     const cPhi = Math.atan2(p.z, p.x);
     const members = 7 + Math.floor(hash(i * 4.4) * 9);
     const spread = 0.03 + hash(i * 6.2) * 0.07;
-    for (let t = 0; t < members && tallCount + wideCount < maxTrees; t++) {
+    for (let t = 0; t < members && treeCount < MAX_ALPINE_TREES; t++) {
       const ang = hash(i * 20 + t * 3.3) * Math.PI * 2;
       const dist = Math.pow(hash(i * 8 + t * 5.1), 0.6) * spread;
       const theta = cTheta + Math.cos(ang) * dist;
@@ -526,8 +541,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
     }
   }
 
-  const groveCount = 360;
-  for (let g = 0; g < groveCount && tallCount + wideCount < maxTrees; g++) {
+  for (let g = 0; g < GROVE_COUNT && treeCount < MAX_ALPINE_TREES; g++) {
     const u = hash(g * 19.1 + 2.3);
     const v = hash(g * 7.7 + 11.2);
     const cTheta = Math.acos(Math.min(1, Math.max(-1, 2 * u - 1)));
@@ -538,7 +552,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
 
     const members = 14 + Math.floor(hash(g * 3.1) * 20);
     const spread = 0.045 + hash(g * 5.4) * 0.11;
-    for (let t = 0; t < members && tallCount + wideCount < maxTrees; t++) {
+    for (let t = 0; t < members && treeCount < MAX_ALPINE_TREES; t++) {
       const ang = hash(g * 100 + t * 1.7) * Math.PI * 2;
       const dist = Math.pow(hash(g * 130 + t * 2.3), 0.5) * spread;
       const theta = cTheta + Math.cos(ang) * dist;
@@ -554,7 +568,7 @@ function plantPines(root: Group, surface: PlanetSurface, railway: RailwayPath): 
       const phi = hash(i * 3.7) * Math.PI * 2;
       const h = heightOffset(theta, phi);
       if (h < 4.0 || h > 16.5) continue;
-      if (nearTrack(railway, theta, phi, 0.04) || nearLake(theta, phi)) continue;
+      if (isNearTrack(theta, phi, 0.04) || nearLake(theta, phi)) continue;
       if (hash(i * 8.8) < 0.72) continue;
       const meshR = surface.radius(theta, phi);
       const r = (meshR > 1 ? meshR : PLANET.radius + h) - 0.04;
@@ -630,7 +644,6 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
   const samples = railway.samples;
   for (let i = 0; i < samples.length; i += 1) {
     const s = samples[i];
-    if (s.inTunnel || tunnelMouth(samples, i)) continue;
     const drift = hash(Math.floor(i / 14) * 1.9);
     for (const side of [-1, 1]) {
       if (drift < 0.12) continue;
@@ -665,7 +678,7 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
 
     if (i % 11 === 0 && !s.elevated && drift > 0.22 && cap.stone < 1900) {
       const side = hash(i * 5.1) > 0.5 ? 1 : -1;
-      const shoulder = s.position.clone().addScaledVector(s.binormal, side * 1.7);
+      const shoulder = s.position.clone().addScaledVector(s.binormal, side * TRACKSIDE_ROCK_OFFSET);
       const at0 = polarOf(shoulder);
       if (gentleMeadow(at0.theta, at0.phi) && !nearLake(at0.theta, at0.phi)) {
         const courses = hash(i) > 0.45 ? 3 : 2;
@@ -674,7 +687,10 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
             if (cap.stone >= 2000) break;
             const p = s.position
               .clone()
-              .addScaledVector(s.binormal, side * (1.65 + hash(i + k) * 0.12 + course * 0.02))
+              .addScaledVector(
+                s.binormal,
+                side * (TRACKSIDE_ROCK_OFFSET + hash(i + k) * 0.12 + course * 0.02),
+              )
               .addScaledVector(s.tangent, (k - 4) * 0.3);
             const at = polarOf(p);
             placeOnSphere(
@@ -694,7 +710,12 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
 
     if (i % 8 === 0 && !s.elevated && drift > 0.35 && cap.post < 600) {
       const side = hash(i * 2.3) > 0.5 ? 1 : -1;
-      const line = s.position.clone().addScaledVector(s.binormal, side * (3.4 + hash(i) * 1.2));
+      const line = s.position
+        .clone()
+        .addScaledVector(
+          s.binormal,
+          side * (TRACK.trackSpacing * 0.5 + TRACK.sleeperWidth * 0.5 + 1 + hash(i) * 1.2),
+        );
       const at = polarOf(line);
       const h = heightOffset(at.theta, at.phi);
       if (h > 0.2 && h < 3.6 && !nearLake(at.theta, at.phi)) {
@@ -725,7 +746,9 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
 
     if (i % 4 === 0 && cap.boulder < 760) {
       const bank = hash(i * 2.2) > 0.5 ? 1 : -1;
-      const shoulder = s.position.clone().addScaledVector(s.binormal, bank * (1.7 + hash(i) * 2.2));
+      const shoulder = s.position
+        .clone()
+        .addScaledVector(s.binormal, bank * (TRACKSIDE_ROCK_OFFSET + hash(i) * 0.9));
       const bankAt = polarOf(shoulder);
       if (!nearLake(bankAt.theta, bankAt.phi) && !gentleMeadow(bankAt.theta, bankAt.phi)) {
         const bankH = heightOffset(bankAt.theta, bankAt.phi);
@@ -751,7 +774,9 @@ function plantTrackside(root: Group, surface: PlanetSurface, railway: RailwayPat
 
     if (i % 6 === 0 && cap.boulder < 800 && hash(i * 1.4) > 0.35) {
       const side = hash(i) > 0.5 ? 1 : -1;
-      const p = s.position.clone().addScaledVector(s.binormal, side * (4 + hash(i) * 6));
+      const p = s.position
+        .clone()
+        .addScaledVector(s.binormal, side * (TRACKSIDE_ROCK_OFFSET + 0.8 + hash(i) * 2.2));
       const at = polarOf(p);
       const h = heightOffset(at.theta, at.phi);
       if (h > 1.4 && h < 7 && !nearLake(at.theta, at.phi)) {
@@ -798,7 +823,12 @@ function polarOf(p: Vector3): { theta: number; phi: number } {
   };
 }
 
-function plantChalets(root: Group, surface: PlanetSurface, railway: RailwayPath): void {
+function plantChalets(
+  root: Group,
+  surface: PlanetSurface,
+  railway: RailwayPath,
+  isNearTrack: TrackProximity,
+): void {
   const villages = [SITES.villageA, SITES.villageB, SITES.villageC, SITES.chaletRidge];
   for (const village of villages) {
     const cluster = new Group();
@@ -810,7 +840,7 @@ function plantChalets(root: Group, surface: PlanetSurface, railway: RailwayPath)
       const dPhi = Math.sin(ang) * 0.05;
       const theta = village.theta + dTheta;
       const phi = wrapPhi(village.phi + dPhi);
-      if (nearTrack(railway, theta, phi, 0.035)) continue;
+      if (isNearTrack(theta, phi, 0.035)) continue;
       const h = heightOffset(theta, phi);
       const meshR = surface.radius(theta, phi);
       const ground = meshR > 1 ? meshR : PLANET.radius + h;
@@ -823,21 +853,27 @@ function plantChalets(root: Group, surface: PlanetSurface, railway: RailwayPath)
     }
     root.add(cluster);
   }
-  plantValleyHouses(root, surface, railway);
+  plantValleyHouses(root, surface, railway, isNearTrack);
 }
 
-function plantValleyHouses(root: Group, surface: PlanetSurface, railway: RailwayPath): void {
+function plantValleyHouses(
+  root: Group,
+  surface: PlanetSurface,
+  railway: RailwayPath,
+  isNearTrack: TrackProximity,
+): void {
   const cluster = new Group();
   cluster.name = "valley-houses";
   let placed = 0;
   const samples = railway.samples;
   for (let i = 30; i < samples.length && placed < 22; i += 32) {
     const s = samples[i];
-    if (s.inTunnel || s.elevated) continue;
+    if (s.elevated) continue;
     const side = hash(i * 1.7) > 0.5 ? 1 : -1;
     const dist = 5.4 + hash(i + 2) * 3.2;
     const p = s.position.clone().addScaledVector(s.binormal, side * dist);
     const at = polarOf(p);
+    if (isNearTrack(at.theta, at.phi, 0.035)) continue;
     const h = heightOffset(at.theta, at.phi);
     if (h < 0.25 || h > 5.8 || nearLake(at.theta, at.phi, 0.05) || !gentleMeadow(at.theta, at.phi)) continue;
     const meshR = surface.radius(at.theta, at.phi);
@@ -978,32 +1014,27 @@ function placeOnSphere(
   tmpMat.setPosition(tmpPos);
 }
 
-function tunnelMouth(samples: { inTunnel: boolean }[], index: number): boolean {
-  const n = samples.length;
-  for (let d = 1; d <= 3; d++) {
-    if (samples[(index + d) % n].inTunnel) return true;
-    if (samples[(index - d + n) % n].inTunnel) return true;
-  }
-  return false;
+export function createTrackProximity(railway: RailwayPath): TrackProximity {
+  const directions = railway.samples
+    .filter((_, index) => index % 2 === 0)
+    .map((sample) => sample.position.clone().normalize());
+  const candidate = new Vector3();
+
+  return (theta, phi, reach) => {
+    const sinTheta = Math.sin(theta);
+    candidate.set(sinTheta * Math.cos(phi), Math.cos(theta), sinTheta * Math.sin(phi));
+    const minDot = Math.cos(reach);
+    for (const direction of directions) {
+      if (candidate.dot(direction) > minDot) return true;
+    }
+    return false;
+  };
 }
 
-function nearTrack(
-  railway: RailwayPath,
-  theta: number,
-  phi: number,
-  reach: number,
-): boolean {
-  // Sparse check against every Nth sample for speed
-  const step = 8;
-  for (let i = 0; i < railway.samples.length; i += step) {
-    const s = railway.samples[i];
-    const sph = {
-      theta: Math.acos(Math.min(1, Math.max(-1, s.position.y / (s.position.length() || 1)))),
-      phi: Math.atan2(s.position.z, s.position.x),
-    };
-    if (angularDistance(theta, phi, sph.theta, sph.phi) < reach) return true;
-  }
-  return false;
+export function nearMountainSummit(theta: number, phi: number): boolean {
+  return MOUNTAIN_SUMMIT_CENTERS.some(
+    (center) => angularDistance(theta, phi, center.theta, center.phi) < TREE_SUMMIT_CLEARANCE,
+  );
 }
 
 function nearLake(theta: number, phi: number, extra = 0): boolean {

@@ -20,7 +20,6 @@ export type PathSample = {
   trackRadius: number;
   groundRadius: number;
   elevation: number;
-  inTunnel: boolean;
   /** Inside a lake crossing, even when the gap is too modest for a mountain fill. */
   bridge: boolean;
   elevated: boolean;
@@ -48,7 +47,7 @@ function designKeys(): Waypoint[] {
     { theta: 1.26, phi: 2.7 },
     { theta: 1.38, phi: 3.05 }, // lake Brienz
     { theta: 1.3, phi: 3.4 },
-    { theta: 1.05, phi: 3.75 }, // tunnel approach
+    { theta: 1.05, phi: 3.75 }, // mountain pass
     { theta: 0.95, phi: 4.05 },
     { theta: 1.15, phi: 4.4 },
     { theta: 1.28, phi: 4.75 },
@@ -169,21 +168,6 @@ function bridgeClearance(theta: number, phi: number): number {
   return lift;
 }
 
-function applyTunnelCut(thetas: number[], phis: number[]): boolean[] {
-  const tunnels = new Array<boolean>(thetas.length).fill(false);
-  const portals = [
-    { theta: SITES.tunnelA.theta, phi: SITES.tunnelA.phi, reach: 0.11 },
-    { theta: SITES.tunnelB.theta, phi: SITES.tunnelB.phi, reach: 0.155 },
-  ];
-  for (let i = 0; i < thetas.length; i++) {
-    for (const portal of portals) {
-      const d = angularDistance(thetas[i], phis[i], portal.theta, portal.phi);
-      if (d < portal.reach) tunnels[i] = true;
-    }
-  }
-  return tunnels;
-}
-
 export function createRailwayPath(
   surface: PlanetSurface,
   sampleCount = 720,
@@ -206,7 +190,6 @@ export function createRailwayPath(
     rides.push(ground + TRACK.bedOffset);
   }
 
-  const tunnels = applyTunnelCut(thetas, phis);
   // A railway formation, not the grass. Local stones are filled or ignored.
   // The grade only climbs where a whole hillside does.
   const bed = formationRadius(grounds);
@@ -259,7 +242,6 @@ export function createRailwayPath(
       trackRadius: trackR,
       groundRadius: groundR,
       elevation: elev,
-      inTunnel: tunnels[i],
       bridge,
       elevated: isViaduct(elev, bridge),
     });
@@ -301,7 +283,6 @@ export function getSampleAt(
   out.trackRadius = a.trackRadius + (b.trackRadius - a.trackRadius) * t;
   out.groundRadius = a.groundRadius + (b.groundRadius - a.groundRadius) * t;
   out.elevation = a.elevation + (b.elevation - a.elevation) * t;
-  out.inTunnel = t < 0.5 ? a.inTunnel : b.inTunnel;
   out.bridge = t < 0.5 ? a.bridge : b.bridge;
   out.elevated = isViaduct(out.elevation, out.bridge);
   return out;
@@ -317,7 +298,6 @@ export function scratchSample(): PathSample {
     trackRadius: 0,
     groundRadius: 0,
     elevation: 0,
-    inTunnel: false,
     bridge: false,
     elevated: false,
   };

@@ -157,8 +157,8 @@ function buildLocomotive(wheels: Object3D[]): Group {
     cyl(parts, soot, 0.055, 0.08, x, 0.34, 1.54, "z", 8);
     cyl(parts, steel, 0.07, 0.02, x, 0.34, 1.58, "z", 8);
   }
-  cyl(parts, brass, 0.07, 0.06, 0, 0.62, 1.46, "z", 10);
-  cyl(parts, lampGlass, 0.045, 0.02, 0, 0.62, 1.5, "z", 10, false);
+  cyl(parts, brass, 0.07, 0.06, 0, 1.16, 1.46, "z", 10);
+  cyl(parts, lampGlass, 0.045, 0.02, 0, 1.16, 1.5, "z", 10, false);
   box(parts, soot, 0.5, 0.04, 0.28, 0, 0.16, 1.32);
   for (const x of [-0.22, 0.22]) {
     box(parts, soot, 0.03, 0.16, 0.32, x, 0.18, 1.28);
@@ -172,7 +172,7 @@ function buildLocomotive(wheels: Object3D[]): Group {
   }
 
   const lamp = new PointLight("#ffe2a8", 2.2, 9, 2);
-  lamp.position.set(0, 0.7, 1.55);
+  lamp.position.set(0, 1.2, 1.55);
   body.add(lamp);
 
   addSpokedWheel(body, wheels, 1.28, 0.11);

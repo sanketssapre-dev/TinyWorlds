@@ -1,6 +1,7 @@
 import {
   AdditiveBlending,
   AmbientLight,
+  BufferGeometry,
   Color,
   DataTexture,
   DirectionalLight,
@@ -11,6 +12,8 @@ import {
   LinearFilter,
   Mesh,
   MeshStandardMaterial,
+  Points,
+  PointsMaterial,
   RGBAFormat,
   Scene,
   SphereGeometry,
@@ -20,17 +23,18 @@ import {
   UnsignedByteType,
   Vector3,
 } from "three";
-import { MOON, SUN } from "../config";
+import { MOON, STARFIELD, SUN } from "../config";
 import { alpineMaps } from "../render/materials";
 import { fbm3, valueNoise3 } from "../math/noise";
 
 /** Cosmic backdrop + lights + single cratered Moon. Not parented under the planet. */
 export function createEnvironment(scene: Scene): Group {
-  scene.background = new Color("#78c5f2");
-  scene.fog = new FogExp2("#a9d8f1", 0.0011);
+  scene.background = new Color("#080d15");
+  scene.fog = new FogExp2("#111923", 0.0007);
 
   const group = new Group();
   group.name = "environment";
+  group.add(createStarField());
 
   const hemi = new HemisphereLight("#c6e7ff", "#607348", 1.18);
   group.add(hemi);
@@ -57,6 +61,40 @@ export function createEnvironment(scene: Scene): Group {
 
   group.add(createMoon());
   return group;
+}
+
+function createStarField(): Points {
+  const positions = new Float32Array(STARFIELD.count * 3);
+  let seed = 0x9e3779b9;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  for (let i = 0; i < STARFIELD.count; i++) {
+    const y = random() * 2 - 1;
+    const angle = random() * Math.PI * 2;
+    const horizontal = Math.sqrt(1 - y * y);
+    const radius =
+      STARFIELD.innerRadius + random() * (STARFIELD.outerRadius - STARFIELD.innerRadius);
+    positions[i * 3] = Math.cos(angle) * horizontal * radius;
+    positions[i * 3 + 1] = y * radius;
+    positions[i * 3 + 2] = Math.sin(angle) * horizontal * radius;
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  const material = new PointsMaterial({
+    color: "#dce5f0",
+    size: 2.2,
+    sizeAttenuation: false,
+    transparent: true,
+    opacity: 0.82,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+  });
+  const stars = new Points(geometry, material);
+  stars.name = "star-field";
+  return stars;
 }
 
 export function createVisibleSun(): Group {
